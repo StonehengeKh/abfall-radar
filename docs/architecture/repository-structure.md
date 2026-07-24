@@ -1,0 +1,79 @@
+# Repository architecture
+
+## Goals
+
+- Keep deployable products independently buildable.
+- Share stable domain, provider, API, and visual contracts without copying.
+- Allow a municipal source to be added without changing product behavior.
+- Preserve a clear path from local-only extension behavior to a normalized backend.
+
+## System context
+
+```mermaid
+flowchart TD
+  Sources["Municipal and community sources"] --> Providers["Provider adapters"]
+  Providers --> Domain["Validated domain models"]
+  Domain --> Extension["Browser extension"]
+  Domain --> Web["Responsive web app"]
+  Domain --> API["Node.js API"]
+  API --> Client["Typed API client"]
+  Client --> Extension
+  Client --> Web
+  Client --> Mobile["Mobile app"]
+```
+
+The extension initially reads a provider locally. When the API stage starts, the same normalized
+domain model remains the boundary while transport and synchronization move behind `api-client`.
+
+## Workspace ownership
+
+| Workspace | Owns | Must not own |
+| --- | --- | --- |
+| `apps/extension` | Browser lifecycle, permissions, storage, alarms, popup composition | Municipal parsing or reusable domain rules |
+| `apps/web` | Routes, web shell, PWA behavior, web feature composition | Browser extension APIs |
+| `apps/api` | HTTP composition, persistence, jobs, provider orchestration | Product UI |
+| `apps/mobile` | Native shell and native feature composition | DOM components |
+| `packages/domain` | Schemas, models, pure business rules | Frameworks, I/O, municipality details |
+| `packages/data-providers` | Source contracts, adapters, normalization | Product UI or persisted user settings |
+| `packages/ui` | Semantic tokens and DOM React primitives | Product-specific data fetching |
+| `packages/api-client` | Typed transport contract | Application state or visual behavior |
+| `packages/test-utils` | Cross-workspace builders and adapters | Product-only fixtures |
+
+## Dependency direction
+
+```mermaid
+flowchart LR
+  Apps["apps/*"] --> UI["ui"]
+  Apps --> Client["api-client"]
+  Apps --> Providers["data-providers"]
+  UI --> Domain["domain"]
+  Client --> Domain
+  Providers --> Domain
+```
+
+Dependencies only point toward stable shared capabilities. Shared packages never import from
+`apps/*`, and domain never imports another product package.
+
+## Feature structure
+
+Applications use feature-oriented folders inside their source root:
+
+```text
+src/
+  app/          Composition, providers, routing
+  features/     User outcomes and feature-specific UI
+  components/   Application-only reusable presentation
+  adapters/     Application runtime boundaries
+  storage/      Application persistence
+  test/         Application test setup
+```
+
+Do not create empty architectural layers. Add a folder when the first owned file exists.
+
+## Data provider contract
+
+Every adapter returns normalized validated data and source metadata. Provider-specific DTOs and
+parsers stay inside the provider adapter. A product surface consumes normalized domain models only.
+
+Provider failures are explicit. Fallback or cached data carries a freshness state and is never
+silently presented as current official data.

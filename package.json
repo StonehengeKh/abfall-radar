@@ -1,0 +1,32 @@
+{
+  "name": "abfall-radar",
+  "private": true,
+  "version": "0.0.0",
+  "packageManager": "pnpm@11.7.0",
+  "type": "module",
+  "engines": {
+    "node": ">=24 <25",
+    "pnpm": ">=11 <12"
+  },
+  "scripts": {
+    "build": "turbo run build",
+    "check": "pnpm format:check && pnpm lint && pnpm typecheck && pnpm test && pnpm build",
+    "dev": "turbo run dev --parallel",
+    "dev:api": "turbo run dev --filter=@abfall-radar/api",
+    "dev:extension": "turbo run dev --filter=@abfall-radar/extension",
+    "dev:mobile": "turbo run dev --filter=@abfall-radar/mobile",
+    "dev:web": "turbo run dev --filter=@abfall-radar/web",
+    "format": "biome format --write .",
+    "format:check": "biome format .",
+    "lint": "biome lint .",
+    "lint:fix": "biome lint --write .",
+    "test": "turbo run test",
+    "test:watch": "turbo run test:watch --parallel",
+    "typecheck": "turbo run typecheck"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "catalog:",
+    "turbo": "catalog:",
+    "typescript": "catalog:"
+  }
+}

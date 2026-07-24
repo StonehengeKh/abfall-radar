@@ -1,0 +1,19 @@
+{
+  "name": "@abfall-radar/data-providers",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@abfall-radar/domain": "workspace:*",
+    "date-fns": "catalog:"
+  },
+  "devDependencies": {
+    "typescript": "catalog:"
+  }
+}
