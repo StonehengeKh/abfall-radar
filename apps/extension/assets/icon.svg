@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-label="AbfallRadar">
+  <defs>
+    <linearGradient id="background" x1="18" y1="12" x2="110" y2="118" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#065F46"/>
+      <stop offset="0.58" stop-color="#047857"/>
+      <stop offset="1" stop-color="#0F766E"/>
+    </linearGradient>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="5" stdDeviation="5" flood-color="#022C22" flood-opacity="0.28"/>
+    </filter>
+  </defs>
+  <rect width="128" height="128" rx="34" fill="url(#background)"/>
+  <circle cx="104" cy="22" r="24" fill="#6EE7B7" opacity="0.10"/>
+  <circle cx="25" cy="112" r="30" fill="#99F6E4" opacity="0.08"/>
+  <g fill="none" stroke="#FFFFFF" stroke-linecap="round" stroke-linejoin="round" stroke-width="9" filter="url(#shadow)">
+    <path d="M38 49 50 29c3-5 10-5 13 0l6 10"/>
+    <path d="m49 29-1 17 16-5"/>
+    <path d="m78 43 13 22c3 5-1 11-7 11H72"/>
+    <path d="m91 65-15-8-1 17"/>
+    <path d="M66 86H41c-6 0-10-7-7-12l6-11"/>
+    <path d="m41 86 15-8-14-10"/>
+  </g>
+</svg>

@@ -1,0 +1,45 @@
+@import "tailwindcss";
+@import "@abfall-radar/ui/styles.css";
+
+@source "../../../../packages/ui/src";
+
+:root {
+  color: var(--ar-color-text);
+  background: var(--ar-color-canvas);
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  -webkit-text-size-adjust: 100%;
+}
+
+html,
+body {
+  margin: 0;
+  min-width: min(392px, 100vw);
+  min-height: 560px;
+  background:
+    radial-gradient(circle at 80% -10%, oklch(0.7 0.14 160 / 12%), transparent 32%),
+    var(--ar-color-canvas);
+}
+
+#root {
+  width: min(392px, 100vw);
+  min-height: 560px;
+}
+
+button {
+  cursor: pointer;
+}
+
+button:disabled {
+  cursor: default;
+}
+
+@media (max-width: 359px) {
+  html,
+  body,
+  #root {
+    min-width: 320px;
+  }
+}
