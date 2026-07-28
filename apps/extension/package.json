@@ -3,6 +3,18 @@
   "private": true,
   "version": "0.1.0",
   "type": "module",
+  "scripts": {
+    "build": "wxt build",
+    "build:firefox": "wxt build -b firefox",
+    "dev": "wxt",
+    "dev:firefox": "wxt -b firefox",
+    "postinstall": "wxt prepare",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit",
+    "zip": "wxt zip",
+    "zip:firefox": "wxt zip -b firefox"
+  },
   "dependencies": {
     "@abfall-radar/data-providers": "workspace:*",
     "@abfall-radar/domain": "workspace:*",

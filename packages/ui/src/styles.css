@@ -11,8 +11,27 @@
   --ar-color-border: oklch(0.9 0.015 160);
   --ar-color-brand: oklch(0.48 0.12 160);
   --ar-color-brand-strong: oklch(0.38 0.1 160);
+  --ar-color-brand-soft: oklch(0.96 0.035 160);
+  --ar-color-on-brand: oklch(0.99 0.004 160);
   --ar-color-focus: oklch(0.58 0.15 160);
   --ar-color-danger: oklch(0.56 0.2 25);
+  --ar-color-demo-surface: oklch(0.97 0.035 80);
+  --ar-color-demo-text: oklch(0.52 0.11 65);
+
+  --ar-color-waste-residual-surface: oklch(0.95 0.01 260);
+  --ar-color-waste-residual-text: oklch(0.4 0.03 260);
+  --ar-color-waste-bio-surface: oklch(0.95 0.055 80);
+  --ar-color-waste-bio-text: oklch(0.48 0.1 65);
+  --ar-color-waste-paper-surface: oklch(0.95 0.04 235);
+  --ar-color-waste-paper-text: oklch(0.48 0.12 235);
+  --ar-color-waste-packaging-surface: oklch(0.96 0.08 95);
+  --ar-color-waste-packaging-text: oklch(0.48 0.11 80);
+  --ar-color-waste-green-surface: oklch(0.95 0.045 150);
+  --ar-color-waste-green-text: oklch(0.45 0.12 150);
+  --ar-color-waste-hazardous-surface: oklch(0.95 0.045 25);
+  --ar-color-waste-hazardous-text: oklch(0.5 0.16 25);
+  --ar-color-waste-electronics-surface: oklch(0.95 0.045 300);
+  --ar-color-waste-electronics-text: oklch(0.5 0.14 300);
 
   --ar-radius-sm: 0.75rem;
   --ar-radius-md: 1rem;
@@ -21,10 +40,45 @@
 
   --ar-shadow-sm: 0 0.25rem 1rem oklch(0.2 0.025 160 / 8%);
   --ar-shadow-md: 0 1rem 2.5rem oklch(0.2 0.025 160 / 14%);
+  --ar-shadow-brand: 0 0.5rem 1.5rem oklch(0.38 0.1 160 / 28%);
 
   --ar-duration-fast: 120ms;
   --ar-duration-normal: 200ms;
   --ar-easing-standard: cubic-bezier(0.2, 0, 0, 1);
+}
+
+@theme inline {
+  --color-ar-canvas: var(--ar-color-canvas);
+  --color-ar-surface: var(--ar-color-surface);
+  --color-ar-surface-muted: var(--ar-color-surface-muted);
+  --color-ar-text: var(--ar-color-text);
+  --color-ar-text-muted: var(--ar-color-text-muted);
+  --color-ar-border: var(--ar-color-border);
+  --color-ar-brand: var(--ar-color-brand);
+  --color-ar-brand-strong: var(--ar-color-brand-strong);
+  --color-ar-brand-soft: var(--ar-color-brand-soft);
+  --color-ar-on-brand: var(--ar-color-on-brand);
+  --color-ar-focus: var(--ar-color-focus);
+  --color-ar-danger: var(--ar-color-danger);
+  --color-ar-demo-surface: var(--ar-color-demo-surface);
+  --color-ar-demo-text: var(--ar-color-demo-text);
+  --color-ar-waste-residual-surface: var(--ar-color-waste-residual-surface);
+  --color-ar-waste-residual-text: var(--ar-color-waste-residual-text);
+  --color-ar-waste-bio-surface: var(--ar-color-waste-bio-surface);
+  --color-ar-waste-bio-text: var(--ar-color-waste-bio-text);
+  --color-ar-waste-paper-surface: var(--ar-color-waste-paper-surface);
+  --color-ar-waste-paper-text: var(--ar-color-waste-paper-text);
+  --color-ar-waste-packaging-surface: var(--ar-color-waste-packaging-surface);
+  --color-ar-waste-packaging-text: var(--ar-color-waste-packaging-text);
+  --color-ar-waste-green-surface: var(--ar-color-waste-green-surface);
+  --color-ar-waste-green-text: var(--ar-color-waste-green-text);
+  --color-ar-waste-hazardous-surface: var(--ar-color-waste-hazardous-surface);
+  --color-ar-waste-hazardous-text: var(--ar-color-waste-hazardous-text);
+  --color-ar-waste-electronics-surface: var(--ar-color-waste-electronics-surface);
+  --color-ar-waste-electronics-text: var(--ar-color-waste-electronics-text);
+  --shadow-ar-sm: var(--ar-shadow-sm);
+  --shadow-ar-md: var(--ar-shadow-md);
+  --shadow-ar-brand: var(--ar-shadow-brand);
 }
 
 *,
@@ -43,6 +97,16 @@ textarea {
 :focus-visible {
   outline: 2px solid var(--ar-color-focus);
   outline-offset: 2px;
+}
+
+.ar-hero {
+  background: linear-gradient(
+    135deg,
+    var(--ar-color-brand-strong) 0%,
+    var(--ar-color-brand) 58%,
+    oklch(0.48 0.095 185) 100%
+  );
+  box-shadow: var(--ar-shadow-md);
 }
 
 @media (prefers-reduced-motion: reduce) {

@@ -31,6 +31,33 @@ pnpm check
 
 Application-specific scripts are exposed from the root when the application becomes active.
 
+## Current milestone
+
+The browser extension MVP includes:
+
+- a responsive React popup;
+- upcoming collection and settings views;
+- local preference storage;
+- Manifest V3 alarms and notifications;
+- a typed provider boundary and clearly labelled demo data;
+- unit and component tests.
+
+The extension runs on demo schedules until an official municipal provider is implemented.
+
+### Browser extension development
+
+```bash
+pnpm dev:extension
+```
+
+For a production build:
+
+```bash
+pnpm --filter @abfall-radar/extension build
+```
+
+Load `apps/extension/.output/chrome-mv3` from `chrome://extensions` with Developer mode enabled.
+
 ## Repository map
 
 ```text
