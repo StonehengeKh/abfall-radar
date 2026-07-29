@@ -5,19 +5,22 @@
 
 ## Goal
 
-Serve real official waste collection dates through the documented HTTP API for at least one manually
-verified Koblenz collection area, by ingesting the municipal calendar file server-side behind a
-bounded, allowlisted retrieval boundary. Every response states where its data came from, when it was
-retrieved, which period the source covers, whether it is fresh or stale, and which waste types the
-source actually declares.
+Serve real official waste collection dates through the documented HTTP API for the verified Koblenz
+Stadtmitte collection area, by ingesting the municipal calendar file server-side behind a bounded,
+allowlisted retrieval boundary. Every response states where its data came from, when it was
+retrieved, which period the source covers, whether it is fresh or stale, which waste types the
+source declares, and for each event whether it is a curbside collection on a date or a mobile
+drop-off inside a time window at a place.
 
 ## User outcome
 
-A person who selects a verified official collection area sees the dates the responsible municipal
-operator published, not generated sample data. When the municipal source is temporarily unavailable,
-they can still see the last successfully retrieved schedule, explicitly labelled as stale. When
-nothing trustworthy is available, they see an error rather than a plausible-looking guess. At no
-point is demo, partial, estimated, or stale data presented as complete current official data.
+A person who selects the verified official collection area sees the dates the responsible municipal
+operator published, not generated sample data. For a mobile drop-off they also see the window and
+the location, because "hazardous waste on 21 March" without "10:00 to 12:00 at this corner" is not
+actionable. When the municipal source is temporarily unavailable, they can still see the last
+successfully retrieved schedule, explicitly labelled as stale. When nothing trustworthy is
+available, they see an error rather than a plausible-looking guess. At no point is demo, partial,
+estimated, or stale data presented as complete current official data.
 
 ## Context
 
@@ -39,9 +42,10 @@ Existing code this task builds on, rather than duplicating:
 
 | Location | Reuse |
 | --- | --- |
-| `packages/domain/src/waste.ts` | `WasteTypeSchema`, `CollectionEventSchema`, `DistrictSchema`. `source: 'municipal_ics'` already exists, so **the domain does not change** |
+| `packages/domain/src/waste.ts` | `WasteTypeSchema` and `CollectionEventSchema`. The waste vocabulary is unchanged; the event model gains timing, mode, and location |
+| `packages/domain/src/schedule.ts` | `getUpcomingEvents`, `findReminderEvent`, `getRelativeDateLabel`. All keep working, because `date` keeps its name and meaning |
 | `packages/data-providers/src/provider.ts` | The `ScheduleProvider` contract the demo provider implements |
-| `packages/data-providers/src/demo-provider.ts` | The deterministic-identifier and normalization style to follow; it must keep working unchanged |
+| `packages/data-providers/src/demo-provider.ts` | The normalization style to follow; it gains all-day and curbside metadata and keeps its identifiers |
 | `apps/api/src/providers/provider-catalogue.ts` | `ProviderCatalogueEntry`, `findProviderEntry`, `toServiceArea` |
 | `apps/api/src/routes/v1/providers.schemas.ts` | `ProviderSourceKindSchema`, `ServiceAreaSchema`, `PROVIDER_ID_PATTERN`, `PROVIDER_ID_MAX_LENGTH` |
 | `apps/api/src/http/problem-details.ts` | `problemCatalogue`, `ApiProblem`, `ProblemDetailsSchema`, `buildProblem` |
@@ -50,29 +54,148 @@ Existing code this task builds on, rather than duplicating:
 | `apps/api/src/test/build-test-app.ts`, `apps/api/src/test/log-collector.ts` | Injection-based app construction and structured-log assertions |
 | `packages/domain/package.json` | The `vitest` script and dependency shape to mirror in `data-providers` |
 
+## Source verification record
+
+Verified by hand on 2026-07-29 against the live source with read-only requests. No part of the
+calendar was saved to the repository.
+
+| Manifest field | Recorded value |
+| --- | --- |
+| `providerId` | `koblenz-servicebetrieb` |
+| `serviceAreaId` | `koblenz-stadtmitte` |
+| `locality` | `Koblenz` |
+| Official area name | `Stadtmitte` |
+| Allowed origin | `https://servicebetrieb.koblenz.de`, hostname `servicebetrieb.koblenz.de`, effective port 443 |
+| Accepted content types | `text/calendar` |
+| Expected calendar zone | `Europe/Berlin`, checked against the calendar's declared zone on every refresh |
+| Source name and attribution | `Kommunaler Servicebetrieb`, the operator name the site publishes |
+| Landing page | <https://servicebetrieb.koblenz.de/abfallwirtschaft/entsorgungstermine-digital/> |
+| Validity window | `2026-01-01` through `2026-12-31` |
+
+The manifest URL is the stable form without a query:
+
+```text
+https://servicebetrieb.koblenz.de/abfallwirtschaft/entsorgungstermine-digital/entsorgungstermine-2026-digital/ics-stadtmitte.ics
+```
+
+Observations of that one retrieval, recorded as evidence and not as manifest values:
+
+| Observation | Value |
+| --- | --- |
+| Redirect | `302` to the same origin and pathname with a `cid` query parameter added (`cid=3kuw`) |
+| Final status | `200` |
+| Content type | `text/calendar`, with no `charset` parameter |
+| Body size | 22301 bytes |
+| `ETag` | `"3kuw"` |
+| Calendar metadata | Exactly one `X-WR-TIMEZONE:Europe/Berlin`, no `VTIMEZONE`, no `TZID` parameter, `METHOD:PUBLISH` |
+| Upstream entries | 46 `VEVENT` entries: 44 all-day `DTSTART;VALUE=DATE` and 2 timed, no `RRULE` |
+| Event date range | `2026-01-07` through `2026-12-21` |
+| Normalized result | 48 `CollectionEvent` values: the 44 all-day entries, plus 4 timed events from the 2 combined entries |
+| Identity check | 48 distinct waste-type-and-date pairs, zero collisions |
+
+The `cid` value and the `ETag` are volatile and belong to neither the manifest nor the public
+contract. The official area name and the validity window are derived from the URL path and the
+landing page, not from the payload: `X-WR-CALNAME` is the single character `2`, so the file attests
+neither. The file is a third-party calendar export, not a purpose-built municipal feed.
+
+### Summary mapping
+
+| Official summary | Count | Waste type | Timing | Collection mode |
+| --- | --- | --- | --- | --- |
+| `Altpapier` | 17 | `paper` | all-day | curbside |
+| `Gelber Sack` | 17 | `yellow_bag` | all-day | curbside |
+| `Grünschnitt` | 8 | `green_waste` | all-day | curbside |
+| `Tannenbäume` | 2 | `christmas_tree` | all-day | curbside |
+| `Schadstoffe / Elektrokleinteile` | 2 | `hazardous` **and** `small_electronics` | time window | mobile drop-off |
+
+Declared coverage is therefore `paper`, `yellow_bag`, `green_waste`, `christmas_tree`, `hazardous`,
+and `small_electronics`. `residual` and `bio` are not covered: no such summary exists in the source,
+and this task does not generate them.
+
+The counts in the table are upstream entries. Because each `Schadstoffe / Elektrokleinteile` entry
+normalizes into two events, the 46 upstream entries produce 48 `CollectionEvent` values: 17 `paper`,
+17 `yellow_bag`, 8 `green_waste`, 2 `christmas_tree`, 2 `hazardous`, and 2 `small_electronics`. Keep
+the two numbers apart when reading or asserting anything about this source.
+
+### Verified timed events
+
+| Local date | Window | Location |
+| --- | --- | --- |
+| `2026-03-21` | `2026-03-21T10:00:00Z` to `2026-03-21T12:00:00Z` | `Rizzastraße Ecke Südallee` |
+| `2026-11-07` | `2026-11-07T10:00:00Z` to `2026-11-07T12:00:00Z` | `Rizzastraße Ecke Südallee` |
+
+These are the two upstream entries. Each normalizes into a `hazardous` event and a
+`small_electronics` event, so they produce four timed normalized events in total, sharing their
+date, window, and location within each pair.
+
+Both instants fall in `Europe/Berlin` standard time, so their Berlin date happens to equal their UTC
+date. That coincidence must not be relied on, which is why a synthetic event whose UTC and Berlin
+dates differ is a required test. The source location value carries a trailing space, so trimming is
+required rather than cosmetic.
+
+### Identifier note
+
+The verified official `serviceAreaId` is `koblenz-stadtmitte`, which is also the identifier of a
+demo district. This is a coincidence of official naming, not a reuse of the demo identifier: the
+official area is named Stadtmitte, and the same slug follows from it. Service-area identifiers are
+namespaced by provider, so the two never collide, and the demo entry is left exactly as it is.
+
 ## Scope
 
-Implement in this order. Step 1 produces the facts every later step depends on.
+Source verification above is complete. Implement in this order.
 
-### 1. Manual source verification
+### 1. Domain contract change
 
-Manually retrieve and inspect the real official calendar for at least one Koblenz collection area,
-and record in the source manifest:
+Extend `packages/domain/src/waste.ts` so a normalized collection event can represent both verified
+timing forms **and cannot represent an incomplete one**. Model the currently supported variants as a
+discriminated union on `collectionMode`, not as three independent fields:
 
-- the exact HTTPS calendar URL and its host;
-- the official area name, and the service-area identifier derived from that official naming;
-- the response content types actually observed;
-- the validity window the file covers;
-- the waste types actually present in the file.
+- **All-day curbside.** `collectionMode: 'curbside'`, `timing: { kind: 'all_day' }`, and no
+  `location`.
+- **Timed mobile drop-off.** `collectionMode: 'mobile_drop_off'`,
+  `timing: { kind: 'time_window', startsAt, endsAt, timeZone }` with all three members required and
+  RFC 3339 instants where `endsAt` is not before `startsAt`, and `location: { name }` required, with
+  a non-empty name that carries no leading or trailing whitespace.
 
-Do not guess a URL pattern and do not commit the downloaded file. If the observed facts contradict
-anything in this task's examples, the observed facts win and the examples are corrected.
+`CollectionEventSchema` keeps its exported name and becomes that union, so every existing consumer
+keeps compiling against the members the variants share. Add one schema per variant for producers
+that need to be explicit.
+
+These combinations must fail `CollectionEventSchema.safeParse`, rather than being merely discouraged
+by convention:
+
+- `mobile_drop_off` with an `all_day` timing;
+- `mobile_drop_off` without a location, or with an empty, whitespace-only, or untrimmed location
+  name;
+- `mobile_drop_off` with a time window missing `startsAt`, `endsAt`, or `timeZone`;
+- `curbside` with a `time_window` timing, or carrying a location;
+- any unknown collection mode.
+
+A half-populated mobile drop-off is the dangerous case: a surface would render "bring this
+somewhere" without saying where or when.
+
+`WasteTypeSchema`, the `source` values, and the field name and meaning of `date` are unchanged, so
+`getUpcomingEvents`, `findReminderEvent`, and `getRelativeDateLabel` need no change; they read only
+`id`, `date`, and `type`, which every variant carries. Neither `timing` nor `collectionMode` is
+optional with a default: an absent value would have to be inferred as all-day, and silent inference
+is what ADR 0003 exists to prevent.
+
+Update the two producers this makes incomplete, and nothing else:
+
+- `packages/data-providers/src/demo-provider.ts` — every demo event gains `{ kind: 'all_day' }` and
+  `collectionMode: 'curbside'`. Demo identifiers, dates, and waste types are unchanged.
+- `packages/domain/src/schedule.test.ts` — its event literals and its `safeParse` case gain the new
+  members.
+
+No extension file constructs or persists a `CollectionEvent`: `dashboard-view.tsx` only types a
+prop, `background.ts` reads `id`, `date`, and `type`, and `AppSettingsSchema` persists waste types
+only. Extension source and behavior therefore do not change.
 
 ### 2. Source metadata types
 
-Add `packages/data-providers/src/source.ts` with the manifest, provenance, freshness, and snapshot
-types, exported from the package root so `apps/api` can type its responses without importing
-Node-only code. `packages/domain` is not modified.
+Add `packages/data-providers/src/source.ts` with the manifest, provenance, freshness, coverage, and
+upstream-failure types, exported from the package root so `apps/api` can type its responses without
+importing Node-only code.
 
 ### 3. Node-only retrieval and cache
 
@@ -80,9 +203,17 @@ Add a Node-only area, `packages/data-providers/src/node/`, reached through a new
 the package `exports` map and **never** re-exported from `src/index.ts`:
 
 - an injectable fetch boundary typed against the Node 24 built-in `fetch`;
-- bounded retrieval: 5-second timeout, 1 MiB response-body limit, manual redirect handling that
-  refuses any hop leaving the host allowlist, and rejection of a content type outside the recorded
-  allowlist;
+- bounded retrieval: a 5-second deadline for the whole retrieval including every redirect hop, not a
+  fresh 5 seconds per hop; a 1 MiB response-body limit; and rejection of a content type outside the
+  recorded allowlist;
+- **origin-pinned, hop-bounded redirect handling.** Redirects are handled manually. The initial
+  manifest URL and every redirect target must keep HTTPS, the exact manifest hostname, and the
+  manifest effective port. A hop that downgrades to HTTP, changes hostname, or changes port is
+  refused rather than followed. Compare the parsed origin; never a hostname substring or a
+  `String.prototype.endsWith` check, which `evil-koblenz.de` would defeat. Follow at most 3 hops and
+  treat a repeated target as a loop; exceeding the limit or detecting a loop stops the retrieval.
+  Every one of these outcomes fails as `UPSTREAM_SOURCE_UNAVAILABLE` when no valid cached value
+  exists;
 - a process-local per-source cache: 6-hour fresh TTL, 7-day stale-if-error maximum, coalesced
   concurrent refreshes, preserved last-success timestamp, `freshness: "fresh" | "stale"`, and no
   manufactured stale value when no successful retrieval exists;
@@ -94,25 +225,81 @@ only its string-parsing API; do not use any helper that fetches a URL.
 ### 4. Koblenz adapter
 
 Add the `koblenz-servicebetrieb` adapter beside its manifest, containing all Koblenz-specific names,
-URLs, and mappings:
+URLs, and mappings.
 
-- an adapter-local summary-to-`WasteType` mapping table;
-- combined entries normalizing into two events where the source announces two collections;
-- all-day `VALUE=DATE` handling that preserves the calendar date with no UTC or local-time shift;
-- deterministic identifiers derived from provider, service area, waste type, and date, stable across
-  refreshes and processes; the upstream `UID` is not the public identifier;
-- collapsing of duplicate identical normalized events;
-- runtime validation of every event through `CollectionEventSchema`;
-- a failed refresh — not a partial schedule — when an entry is malformed, unmapped, or invalid.
+**Timing and mode.** The timing form follows the calendar value type: an all-day `VALUE=DATE` entry
+becomes an `all_day` timing, and an entry with start and end instants becomes a `time_window` timing
+carrying `startsAt`, `endsAt`, and the source time zone. The collection mode follows the mapping
+table. When the two disagree — a mobile-drop-off mapping arriving as an all-day entry, or the
+reverse — the refresh fails, because the source has changed in a way the mapping no longer
+describes. The same applies whenever upstream data cannot produce one of the valid domain variants,
+for example a mobile drop-off whose entry has no `DTEND` or no `LOCATION`: fail the refresh rather
+than emit a half-populated event or drop the entry.
+
+**Calendar zone.** Before normalizing any timed event, require that the calendar declares exactly
+one usable zone and that it equals the manifest zone. A declaration that is missing, empty,
+duplicated, malformed, or different from `Europe/Berlin` fails the refresh as
+`UPSTREAM_SOURCE_INVALID`. Never fall back to the manifest zone for a file that does not attest it:
+the manifest value is the expectation to check, not a default to substitute, and substituting it
+would apply an assumption the source has stopped supporting.
+
+**Calendar date.** An all-day date is preserved exactly. A timed event's top-level `date` is derived
+in the validated zone with `Intl.DateTimeFormat` and **`formatToParts`**, reading the `year`,
+`month`, and `day` parts, with the calendar pinned to `gregory` and the numbering system to `latn`.
+Never parse a formatted string, and never derive the date in UTC or in the server's local zone.
+
+**Location.** The official location name is preserved, trimmed, and its internal whitespace
+collapsed before validation, because the domain rejects an untrimmed name. Nothing else from the
+source entry is exposed: `DESCRIPTION`, `UID`, and `DTSTAMP` stay internal.
+
+**Identity.** A deterministic identifier is derived from the normalized event identity, not from its
+position in the file. The identity tuple has nine members, in this fixed order, with absent members
+as explicit nulls:
+
+1. `providerId`
+2. `serviceAreaId`
+3. `wasteType`
+4. local `date`
+5. timing kind
+6. `startsAt`, or null
+7. `endsAt`, or null
+8. `timeZone`, or null
+9. normalized location name, or null
+
+An all-day event carries nulls in members 6 to 9. `collectionMode` is not a member: the closed
+variant set makes it a function of the timing kind, so it would only restate member 5.
+
+- The canonical representation is a JSON array of those nine members in that order, so arbitrary
+  official text cannot forge a boundary the way it could in a delimiter join.
+- Instants are serialized in one UTC form, and the location name is NFC-normalized before hashing,
+  so the same official name cannot hash two ways.
+- The zone is part of identity even though the instants are absolute: the same instants under a
+  different zone describe a different local appointment, so a zone change must produce a new
+  identifier rather than silently reuse the old one.
+- The identifier is the readable prefix `providerId-serviceAreaId-wasteType-date` followed by a
+  truncated SHA-256 hex digest of the canonical representation, using `node:crypto` inside the Node
+  subpath.
+- The identifier is opaque; document that clients must not parse it.
+- Two events differing in timing, zone, or location get different identifiers and are both returned.
+  Only fully identical normalized events collapse. Do not fail a refresh over an identifier
+  collision that identity-derived hashing already prevents.
+- The upstream `UID` is never an identity input and never leaves the adapter except as untrusted
+  source metadata in a log.
+
+**Validation.** Every event is validated through `CollectionEventSchema`. A malformed entry, an
+unmapped summary, or a validation failure fails the refresh instead of producing a partial schedule.
 
 ### 5. API wiring
 
 - Extend `ProviderSourceKindSchema` with `official_ics` and register the official provider in the
-  catalogue with its verified service areas.
+  catalogue with its verified service area.
 - Add the collection-events route with its request and response schemas, range filtering, and
   transport mapping (`districtId` → `serviceAreaId`, `type` → `wasteType`).
+- Filter by the top-level local `date`, not by instant, so a timed event belongs to the day a person
+  would look for it under.
+- Expose `timing`, `collectionMode`, and `location` on each event.
 - Reject an unknown service area for a known provider with `SERVICE_AREA_NOT_FOUND`.
-- Keep the demo provider listed and unchanged, and keep its demo labelling intact.
+- Keep the demo provider listed and labelled as demo data.
 
 ### 6. Error contract and documentation
 
@@ -120,6 +307,11 @@ URLs, and mappings:
   a fixed diagnostic `detail` that interpolates no request input and no upstream payload.
 - Document success, fresh, stale, validation, both not-found cases, range, invalid-upstream, and
   unavailable-upstream responses in the generated OpenAPI contract with realistic examples.
+- Document the event as a `oneOf` discriminated on `collectionMode`, one branch per supported
+  variant, so the contract shows which fields travel together instead of listing independent
+  optionals. The curbside branch has an `all_day` timing and no location; the mobile-drop-off branch
+  requires the window, the zone, and the location. Give each branch its own example and describe the
+  invalid combinations the API will never return.
 
 ### 7. Tests
 
@@ -128,7 +320,7 @@ mirroring `packages/domain`. Cover everything in [Test requirements](#test-requi
 
 ### 8. Documentation updates
 
-Update `apps/api/README.md` (new route, new provider, new error codes, request correlation),
+Update `apps/api/README.md` (new route, new provider, timing forms, new error codes),
 `packages/data-providers/README.md` (the `./node` boundary and why it exists), and the provider
 section of `docs/architecture/repository-structure.md` if the implemented boundary reveals a gap. Do
 not restate the ADR; link it.
@@ -136,17 +328,23 @@ not restate the ADR; link it.
 ## Non-goals
 
 - Migrating the browser extension to the API or to `@abfall-radar/api-client`.
+- Any change to extension product behavior, its default district, or its persisted settings.
 - Generating `@abfall-radar/api-client` or any client code.
 - Web application or mobile application work.
 - Cataloguing every Koblenz collection area.
 - Generating, estimating, or inferring `residual` or `bio` events, odd/even week rules, or holiday
   shifts.
+- Recurrence or `RRULE` support: the verified source contains none.
+- A time-zone library. `Intl` is built in and sufficient.
+- Exposing `UID`, `DTSTAMP`, `DESCRIPTION`, or any other upstream field beyond the normalized
+  timing, mode, and location.
+- Presenting a mobile drop-off as if it were a curbside collection, or the reverse.
 - Addresses, geocoding, map data, or recycling-point endpoints.
 - Database, migrations, Redis, another shared cache, or scheduled refresh jobs.
 - Authentication, accounts, or cross-device synchronization.
 - Deployment, container images, CI deployment, rate limiting, or a monitoring backend.
 - Any product UI or design-system change.
-- Changing `packages/domain`, the demo provider, or extension behavior.
+- Any domain change beyond the timing, mode, and location members described in scope step 1.
 
 ## HTTP contract
 
@@ -160,10 +358,16 @@ and digits with internal hyphens, starting and ending alphanumeric, at most 64 c
 violation is `400`; a well-formed but unregistered value is `404`.
 
 `from` and `to` are required ISO calendar dates. `from` must not be after `to`, and the inclusive
-range must not exceed 366 days. Events are filtered to the inclusive range.
+range must not exceed 366 days. Events are filtered on their local `date`.
 
-Values written as `<recorded during source verification>` are placeholders that step 1 replaces with
-verified facts. They must not survive into the implementation.
+An event is one of two variants, discriminated by `collectionMode`. A curbside event has an
+`all_day` timing and no location. A mobile-drop-off event has a `time_window` timing with
+`startsAt`, `endsAt`, and `timeZone`, plus a location. No other combination exists in the contract,
+so a client can switch on `collectionMode` and rely on the rest of the shape.
+
+In the examples below, the timed event, its window, its location, and every official summary are
+verified values. The all-day event's date is illustrative, because all-day collection dates were not
+recorded during verification, and the hash suffixes are illustrative rather than computed.
 
 ### Fresh success
 
@@ -171,41 +375,71 @@ verified facts. They must not survive into the implementation.
 {
   "data": [
     {
-      "id": "koblenz-servicebetrieb-<serviceAreaId>-paper-2026-08-14",
-      "serviceAreaId": "<recorded during source verification>",
+      "id": "koblenz-servicebetrieb-koblenz-stadtmitte-paper-2026-08-14-9f2c1d7ab3e45608",
+      "serviceAreaId": "koblenz-stadtmitte",
       "wasteType": "paper",
       "date": "2026-08-14",
-      "title": "<official summary, preserved>",
-      "source": "municipal_ics"
+      "title": "Altpapier",
+      "source": "municipal_ics",
+      "collectionMode": "curbside",
+      "timing": { "kind": "all_day" }
+    },
+    {
+      "id": "koblenz-servicebetrieb-koblenz-stadtmitte-hazardous-2026-03-21-4b81e0c6f2a97d35",
+      "serviceAreaId": "koblenz-stadtmitte",
+      "wasteType": "hazardous",
+      "date": "2026-03-21",
+      "title": "Schadstoffe / Elektrokleinteile",
+      "source": "municipal_ics",
+      "collectionMode": "mobile_drop_off",
+      "timing": {
+        "kind": "time_window",
+        "startsAt": "2026-03-21T10:00:00Z",
+        "endsAt": "2026-03-21T12:00:00Z",
+        "timeZone": "Europe/Berlin"
+      },
+      "location": { "name": "Rizzastraße Ecke Südallee" }
     }
   ],
   "meta": {
     "provider": {
       "id": "koblenz-servicebetrieb",
-      "name": "<recorded during source verification>",
+      "name": "Kommunaler Servicebetrieb",
       "sourceKind": "official_ics"
     },
     "serviceArea": {
-      "id": "<recorded during source verification>",
+      "id": "koblenz-stadtmitte",
       "locality": "Koblenz",
-      "name": "<official area name, preserved>"
+      "name": "Stadtmitte"
     },
     "source": {
-      "name": "<recorded during source verification>",
+      "name": "Kommunaler Servicebetrieb",
       "landingPageUrl": "https://servicebetrieb.koblenz.de/abfallwirtschaft/entsorgungstermine-digital/",
-      "attribution": "<recorded during source verification>"
+      "attribution": "Kommunaler Servicebetrieb, Koblenz",
+      "timeZone": "Europe/Berlin"
     },
     "retrievedAt": "2026-07-29T08:14:02.000Z",
-    "validFrom": "<recorded during source verification>",
-    "validTo": "<recorded during source verification>",
+    "validFrom": "2026-01-01",
+    "validTo": "2026-12-31",
     "freshness": "fresh",
     "coverage": {
-      "wasteTypes": ["<recorded during source verification>"]
+      "wasteTypes": [
+        "paper",
+        "yellow_bag",
+        "green_waste",
+        "christmas_tree",
+        "hazardous",
+        "small_electronics"
+      ]
     },
-    "range": { "from": "2026-08-01", "to": "2026-08-31" }
+    "range": { "from": "2026-01-01", "to": "2026-12-31" }
   }
 }
 ```
+
+The same combined source entry also produces a `small_electronics` event with identical `date`,
+`timing`, `collectionMode`, and `location`. Only `wasteType` differs, so identity differs and the
+two identifiers differ.
 
 `meta.source` carries the public landing page. The direct calendar download URL is never part of a
 response. `coverage.wasteTypes` is the manifest declaration; an empty `data` array with a non-empty
@@ -241,8 +475,8 @@ response body, a stack trace, an upstream URL, or infrastructure details.
 | `PROVIDER_NOT_FOUND` | 404 | `urn:abfall-radar:problem:provider-not-found` | Well-formed provider identifier that is not registered |
 | `SERVICE_AREA_NOT_FOUND` | 404 | `urn:abfall-radar:problem:service-area-not-found` | Known provider, well-formed service-area identifier that the provider does not serve |
 | `SCHEDULE_RANGE_NOT_COVERED` | 422 | `urn:abfall-radar:problem:schedule-range-not-covered` | The requested range is not covered by the source's declared validity window |
-| `UPSTREAM_SOURCE_INVALID` | 502 | `urn:abfall-radar:problem:upstream-source-invalid` | The source was retrieved but is unusable — content type outside the allowlist, body limit exceeded, RFC parse failure, unknown or unmapped summary, or domain validation failure — and no valid cached value exists |
-| `UPSTREAM_SOURCE_UNAVAILABLE` | 503 | `urn:abfall-radar:problem:upstream-source-unavailable` | The source could not be retrieved — timeout, connection error, non-2xx status, or a redirect leaving the host allowlist — and no valid cached value exists |
+| `UPSTREAM_SOURCE_INVALID` | 502 | `urn:abfall-radar:problem:upstream-source-invalid` | The source was retrieved but is unusable — content type outside the allowlist, body limit exceeded, RFC parse failure, a calendar zone that is missing, empty, duplicated, malformed, or not the manifest zone, unknown or unmapped summary, timing and mode disagreement, an entry that cannot produce a valid event variant, or domain validation failure — and no valid cached value exists |
+| `UPSTREAM_SOURCE_UNAVAILABLE` | 503 | `urn:abfall-radar:problem:upstream-source-unavailable` | The source could not be retrieved — the retrieval deadline elapsed, a connection error, a non-2xx status, a redirect that leaves the manifest origin by downgrading to HTTP or changing hostname or port, more than 3 redirect hops, or a redirect loop — and no valid cached value exists |
 | `INTERNAL_SERVER_ERROR` | 500 | `urn:abfall-radar:problem:internal-server-error` | Any unexpected failure. Logged in full with its request identifier, returned sanitized |
 
 `SCHEDULE_RANGE_NOT_COVERED` is decided from the declared validity window, never from an empty
@@ -255,7 +489,7 @@ instead of `502` or `503`.
   "title": "Official source unavailable",
   "status": 503,
   "detail": "The official source could not be retrieved and no valid schedule is available.",
-  "instance": "/api/v1/providers/koblenz-servicebetrieb/service-areas/<id>/collection-events?from=2026-08-01&to=2026-08-31",
+  "instance": "/api/v1/providers/koblenz-servicebetrieb/service-areas/koblenz-stadtmitte/collection-events?from=2026-03-01&to=2026-03-31",
   "code": "UPSTREAM_SOURCE_UNAVAILABLE",
   "requestId": "req-1"
 }
@@ -269,49 +503,97 @@ structured log line.
 
 ### Source control and boundaries
 
-- [ ] The manifest records the verified exact HTTPS URL, host, official area name, derived
-      service-area identifier, source name, landing page, validity window, accepted content types,
-      and declared waste types for at least one area.
+- [ ] The manifest holds exactly the values in the source verification record, including the allowed
+      origin, accepted content type, source time zone, validity window, and declared waste types.
+- [ ] The manifest URL and every redirect target are checked against the approved origin: HTTPS, the
+      exact hostname, and the approved effective port. The check compares parsed origins, not
+      hostname substrings or suffixes.
+- [ ] At most 3 redirect hops are followed, a repeated target is treated as a loop, and the 5-second
+      budget is a deadline for the whole retrieval rather than a fresh timeout per hop.
+- [ ] The manifest URL is the stable no-query form; no `cid` value appears in the manifest, in any
+      response, or in any test.
 - [ ] No request parameter, header, or body can influence the upstream URL or host.
 - [ ] No runtime code fetches an HTML page or a PDF.
-- [ ] All Koblenz-specific names, URLs, and mappings live inside the provider adapter;
-      `packages/domain` is unchanged.
+- [ ] All Koblenz-specific names, URLs, and mappings live inside the provider adapter.
 - [ ] Node-only provider code is reachable only through `@abfall-radar/data-providers/node` and is
       not reachable from the package root export.
 - [ ] Only the `node-ical` string-parsing API is used; no library helper fetches a URL.
+
+### Domain and demo provider
+
+- [ ] `CollectionEventSchema` accepts the all-day curbside variant and the timed mobile-drop-off
+      variant.
+- [ ] `CollectionEventSchema` rejects every invalid combination listed in scope step 1: a mobile
+      drop-off with an all-day timing, without a location, or with an empty, whitespace-only, or
+      untrimmed location name; a mobile drop-off whose window is missing `startsAt`, `endsAt`, or
+      `timeZone`, or whose `endsAt` precedes its `startsAt`; a curbside event carrying a window or a
+      location; and an unknown collection mode.
+- [ ] `WasteTypeSchema`, the `source` values, and the name and meaning of `date` are unchanged.
+- [ ] Demo events carry an all-day timing and a curbside mode, with unchanged identifiers, dates,
+      and waste types.
+- [ ] No file under `apps/extension` is modified, and the extension's behavior and persisted
+      settings are unchanged.
+- [ ] `pnpm --filter @abfall-radar/domain test` and `pnpm --filter @abfall-radar/extension test`
+      pass.
 
 ### Contract behavior
 
 - [ ] `GET /api/v1/providers` lists `koblenz-servicebetrieb` with `sourceKind: "official_ics"` and
       still lists the demo provider with `sourceKind: "demo"`.
-- [ ] `GET /api/v1/providers/koblenz-servicebetrieb/service-areas` returns only verified areas,
-      using official naming.
+- [ ] `GET /api/v1/providers/koblenz-servicebetrieb/service-areas` returns the verified area with
+      official naming.
 - [ ] The collection-events route returns documented fresh events with full provenance for a range
-      inside the source's validity window.
+      inside the validity window.
+- [ ] An all-day event exposes an all-day timing and a curbside mode and no location.
+- [ ] A timed event exposes `startsAt`, `endsAt`, `timeZone`, a mobile-drop-off mode, and a trimmed
+      location name.
 - [ ] `coverage.wasteTypes` comes from the manifest and is never derived from the returned events.
 - [ ] An empty in-range result returns `200` with an empty `data` array and unchanged coverage.
-- [ ] Events are filtered to the inclusive `from`/`to` range.
+- [ ] Events are filtered on their local `date`, not on their instant.
 - [ ] Missing `from`, missing `to`, a non-ISO date, `from` after `to`, and a range over 366 days
       each return the documented `400`.
 - [ ] Each error in the error contract is reachable and returns exactly its documented status,
       `type`, and `code`.
-- [ ] No response contains an upstream URL, an upstream payload, a stack trace, or a library error
-      message.
+- [ ] No response contains `UID`, `DTSTAMP`, `DESCRIPTION`, an upstream URL, an upstream payload, a
+      stack trace, or a library error message.
 - [ ] Response schemas prevent an undocumented field from being serialized.
 - [ ] Every response carries `x-request-id`, and every Problem Details body's `requestId` matches
       it.
 
 ### Ingestion behavior
 
-- [ ] A `VALUE=DATE` all-day event yields the same calendar date regardless of the process time
-      zone.
-- [ ] Identifiers are byte-identical across repeated refreshes of unchanged source content.
-- [ ] A combined official entry yields two events with distinct waste types and distinct
-      identifiers.
-- [ ] Duplicate identical normalized events collapse to one.
-- [ ] A malformed event, an unknown summary, or a domain-validation failure fails the refresh and
-      produces no partial schedule.
-- [ ] Retrieval aborts at 5 seconds and at 1 MiB, and refuses a redirect leaving the host allowlist.
+- [ ] An all-day event yields the same calendar date regardless of the process time zone.
+- [ ] A timed event yields its `Europe/Berlin` calendar date, derived with `formatToParts`, and the
+      two verified windows resolve to `2026-03-21` and `2026-11-07`.
+- [ ] The combined entry yields two events, `hazardous` and `small_electronics`, sharing date,
+      timing, mode, and location, with different identifiers.
+- [ ] Counts are asserted at the right level: upstream `VEVENT` entries and normalized
+      `CollectionEvent` values are never conflated. For the source as verified on 2026-07-29, 46
+      upstream entries normalize into 48 events — 44 all-day and 4 timed — with 48 distinct
+      waste-type-and-date pairs and no collision. This is confirmed by manual verification, because
+      no automated test may reach the network.
+- [ ] Identifiers are byte-identical across repeated refreshes of unchanged source content and
+      across process time zones.
+- [ ] The identity tuple contains all nine members in the documented order, with nulls for members 6
+      to 9 on an all-day event, and `collectionMode` is not a member.
+- [ ] Two events with the same waste type and date but a different window, zone, or location receive
+      different identifiers and are both returned.
+- [ ] Fully identical normalized events collapse to one.
+- [ ] No refresh fails because of an identifier collision.
+- [ ] Identifiers are documented as opaque, and no client-facing documentation invites parsing them.
+- [ ] A malformed event, an unmapped summary, a timing and mode disagreement, or a domain-validation
+      failure fails the refresh and produces no partial schedule.
+- [ ] Retrieval aborts at the 5-second deadline and at 1 MiB.
+- [ ] A same-origin HTTPS redirect is followed; an HTTP downgrade, a hostname change, and a port
+      change are each refused and reported as `UPSTREAM_SOURCE_UNAVAILABLE`.
+- [ ] A chain of 3 same-origin hops succeeds; a fourth hop and a redirect loop each stop retrieval
+      and report `UPSTREAM_SOURCE_UNAVAILABLE`.
+- [ ] The calendar's declared zone is validated against the manifest zone before any timed event is
+      normalized, and a missing, empty, duplicated, malformed, or mismatching declaration fails the
+      refresh as `UPSTREAM_SOURCE_INVALID`.
+- [ ] No code path falls back to the manifest zone when the calendar does not attest it.
+- [ ] An upstream entry that cannot produce a valid event variant fails the refresh rather than
+      producing a half-populated event or silently dropping the entry.
 - [ ] A content type outside the recorded allowlist is rejected.
 - [ ] A second request inside the fresh TTL performs no upstream request.
 - [ ] Concurrent requests for one source cause exactly one upstream request.
@@ -325,9 +607,11 @@ structured log line.
 - [ ] OpenAPI documents the operation with a summary, operation identifier, tags, and schemas, plus
       examples for success, fresh, stale, validation, provider-not-found, service-area-not-found,
       range-not-covered, invalid-upstream, and unavailable-upstream responses.
+- [ ] OpenAPI documents the event as a `oneOf` discriminated on `collectionMode`, with an example
+      per branch, and no branch that permits an incomplete mobile drop-off.
 - [ ] Swagger UI at `/docs` and `/openapi.json` show the operation and every documented response.
 - [ ] `apps/api/README.md` and `packages/data-providers/README.md` describe the new route, provider,
-      error codes, and the `./node` boundary.
+      timing forms, error codes, and the `./node` boundary.
 - [ ] No municipal calendar file is committed and no test performs network access.
 - [ ] `pnpm --filter @abfall-radar/extension build` succeeds and extension behavior is unchanged.
 - [ ] `pnpm --filter @abfall-radar/api build` succeeds with `node-ical` bundled and the existing
@@ -338,25 +622,76 @@ structured log line.
 
 All tests use small synthetic ICS fixtures written for this repository and a mocked fetch boundary.
 
-Parsing and normalization, in `packages/data-providers`:
+Domain, in `packages/domain`:
+
+- [ ] an all-day curbside event is accepted;
+- [ ] a timed mobile drop-off with a full window and a location is accepted;
+- [ ] a mobile drop-off with an `all_day` timing is rejected;
+- [ ] a mobile drop-off without a location is rejected;
+- [ ] a mobile drop-off with an empty or whitespace-only location name is rejected;
+- [ ] a mobile drop-off with an untrimmed location name is rejected;
+- [ ] a time window missing `startsAt`, `endsAt`, or `timeZone` is rejected;
+- [ ] a time window whose `endsAt` precedes its `startsAt` is rejected;
+- [ ] a curbside event carrying a `time_window` timing is rejected;
+- [ ] a curbside event carrying a location is rejected;
+- [ ] an unknown collection mode is rejected;
+- [ ] the existing schedule rules keep working against both variants.
+
+Parsing, timing, and identity, in `packages/data-providers`:
 
 - [ ] a minimal valid calendar parses into the expected events;
 - [ ] folded lines are unfolded correctly;
 - [ ] escaped characters (`\,`, `\;`, `\n`, `\\`) resolve correctly;
 - [ ] a leading UTF-8 BOM is handled;
+- [ ] a calendar declaring exactly `Europe/Berlin` is accepted;
+- [ ] a calendar with no declared zone is rejected, and the failure maps to invalid rather than
+      unavailable;
+- [ ] a calendar with an empty, duplicated, or malformed declared zone is rejected;
+- [ ] a calendar declaring another zone, such as `Europe/Paris`, is rejected rather than normalized
+      against the manifest zone;
+- [ ] a timed event close to midnight derives its local date only after zone validation succeeds, so
+      a fixture with a bad zone produces no event at all rather than a plausible date;
 - [ ] all-day `VALUE=DATE` events keep their calendar date, asserted with the test process pinned to
       a non-UTC time zone in both hemispheres of UTC;
-- [ ] identifiers are deterministic across two parses of identical content;
-- [ ] a combined entry maps to two events;
-- [ ] duplicate identical events collapse;
+- [ ] UTC timed events convert to the correct `Europe/Berlin` calendar date;
+- [ ] a synthetic timed event at `2026-06-30T22:30:00Z` yields the local date `2026-07-01`, so a UTC
+      or server-local derivation fails the test;
+- [ ] `startsAt`, `endsAt`, `timeZone`, and `collectionMode` are preserved exactly;
+- [ ] a location name with a trailing space and a doubled internal space is trimmed and collapsed;
+- [ ] one combined upstream event produces two normalized events;
+- [ ] a fixture with two combined entries on different dates produces four timed events with four
+      distinct identifiers, so an upstream entry count is never mistaken for a normalized event
+      count;
+- [ ] those two events have distinct deterministic identifiers and identical timing and location;
+- [ ] two events with the same waste type and date but different windows get different identifiers;
+- [ ] two events with the same waste type, date, and window but different `timeZone` values get
+      different identifiers, so dropping the zone from the tuple fails the test;
+- [ ] two events with the same waste type, date, and window but different locations get different
+      identifiers;
+- [ ] identifiers are stable across two parses and across process time zones;
+- [ ] a location name supplied in NFD yields the same identifier as the same name in NFC;
+- [ ] fully identical events collapse to one;
 - [ ] a malformed event fails the refresh;
-- [ ] an unknown summary fails the refresh.
+- [ ] an unknown summary fails the refresh;
+- [ ] a mobile-drop-off mapping arriving as an all-day entry fails the refresh;
+- [ ] a mobile-drop-off entry with no end instant fails the refresh;
+- [ ] a mobile-drop-off entry with no location fails the refresh;
+- [ ] no upstream `UID` appears in a normalized event.
 
 Retrieval and cache, in `packages/data-providers`:
 
-- [ ] a request exceeding 5 seconds aborts and reports unavailable;
+- [ ] a retrieval exceeding the 5-second deadline aborts and reports unavailable;
+- [ ] the deadline covers a redirect chain as a whole, so hops that are individually fast but
+      collectively slow still abort;
 - [ ] a body exceeding 1 MiB aborts and reports invalid;
-- [ ] a redirect inside the allowlist is followed; one leaving it is refused;
+- [ ] the verified single same-origin HTTPS hop is followed;
+- [ ] a chain of 3 same-origin hops is followed;
+- [ ] a chain of 4 hops stops and reports unavailable;
+- [ ] a same-origin redirect loop stops and reports unavailable;
+- [ ] a redirect that downgrades to HTTP is refused and reports unavailable;
+- [ ] a redirect to another hostname is refused and reports unavailable, including a hostname that
+      merely ends with the approved one;
+- [ ] a redirect to another port on the approved hostname is refused and reports unavailable;
 - [ ] a content type outside the allowlist is rejected;
 - [ ] a non-2xx status reports unavailable;
 - [ ] a second call inside the fresh TTL does not call fetch;
@@ -369,9 +704,11 @@ Retrieval and cache, in `packages/data-providers`:
 Contract, in `apps/api`:
 
 - [ ] the fresh success response, its schema, and its provenance;
+- [ ] both variants serialized as documented, including the trimmed location and the absence of a
+      location on a curbside event;
 - [ ] the stale success response and its structured warning log, asserted with the existing log
       collector;
-- [ ] range filtering at both inclusive boundaries;
+- [ ] range filtering at both inclusive boundaries, including a timed event at a boundary;
 - [ ] every validation rejection listed in the acceptance criteria;
 - [ ] `PROVIDER_NOT_FOUND`, `SERVICE_AREA_NOT_FOUND`, `SCHEDULE_RANGE_NOT_COVERED`,
       `UPSTREAM_SOURCE_INVALID`, `UPSTREAM_SOURCE_UNAVAILABLE`, and a sanitized
@@ -384,47 +721,83 @@ Contract, in `apps/api`:
 Automated:
 
 ```bash
+pnpm --filter @abfall-radar/domain test
 pnpm --filter @abfall-radar/data-providers test
 pnpm --filter @abfall-radar/api test
 pnpm --filter @abfall-radar/api typecheck
 pnpm --filter @abfall-radar/api build
+pnpm --filter @abfall-radar/extension test
 pnpm --filter @abfall-radar/extension build
 pnpm check
 ```
 
-Manual scenarios, with `pnpm dev:api` running and `AREA` set to the verified service-area
-identifier:
+Manual scenarios, with `pnpm dev:api` running:
 
 ```bash
-curl --fail-with-body http://localhost:3000/api/v1/providers
-curl --fail-with-body http://localhost:3000/api/v1/providers/koblenz-servicebetrieb/service-areas
 BASE="http://localhost:3000/api/v1/providers/koblenz-servicebetrieb/service-areas"
-curl --fail-with-body "$BASE/$AREA/collection-events?from=2026-08-01&to=2026-08-31"
-curl --include "$BASE/$AREA/collection-events?from=2026-08-31&to=2026-08-01"
-curl --include "$BASE/unknown-area/collection-events?from=2026-08-01&to=2026-08-31"
-curl --include "$BASE/$AREA/collection-events?from=2026-08-01"
+AREA="koblenz-stadtmitte"
+curl --fail-with-body http://localhost:3000/api/v1/providers
+curl --fail-with-body "http://localhost:3000/api/v1/providers/koblenz-servicebetrieb/service-areas"
+curl --fail-with-body "$BASE/$AREA/collection-events?from=2026-03-01&to=2026-03-31"
+curl --fail-with-body "$BASE/$AREA/collection-events?from=2026-11-01&to=2026-11-30"
+curl --include "$BASE/$AREA/collection-events?from=2026-03-31&to=2026-03-01"
+curl --include "$BASE/$AREA/collection-events?from=2025-01-01&to=2025-12-31"
+curl --include "$BASE/unknown-area/collection-events?from=2026-03-01&to=2026-03-31"
+curl --include "$BASE/$AREA/collection-events?from=2026-03-01"
 ```
 
-- Retrieve the exact official calendar URL once by hand and confirm the response status, content
-  type, size, validity window, and waste types match the manifest. Do not commit the file or any
-  excerpt of its schedule.
-- Compare the API response for the verified area against that manual retrieval and confirm the dates
-  and waste types agree.
+- Confirm the March and November responses each contain the mobile drop-off with the window,
+  `Europe/Berlin`, and the trimmed location, and that the `hazardous` and `small_electronics` events
+  share timing and location while carrying different identifiers.
+- Retrieve the exact official calendar URL once by hand and confirm the status, content type, size,
+  and waste types still match the source verification record, that the chain is still one
+  same-origin hop, and that the file still declares exactly one `Europe/Berlin` zone. Do not commit
+  the file or any excerpt of its schedule.
+- Compare the API response against that retrieval and confirm the dates, windows, and waste types
+  agree.
+- Request the full validity window and confirm the response holds 48 events for the source as
+  verified — 44 all-day and 4 timed — against 46 upstream `VEVENT` entries, and that no two events
+  share a waste type and date. A count of 46 would mean the combined entries were not expanded.
 - Confirm a second identical request inside the TTL performs no upstream request, using the API's
   structured logs.
 - Force a retrieval failure — point the manifest host at an unreachable local address in a scratch
   run — and confirm the response is a labelled stale `200` with a warning log while a cached value
   exists, and a `503` once none does.
-- Open `http://localhost:3000/docs`, execute the new operation, and confirm every documented
-  response and example is present.
+- Open `http://localhost:3000/docs`, execute the new operation, and confirm both timing branches and
+  every documented response are present.
 - Open `http://localhost:3000/openapi.json` and confirm it matches the interactive reference.
 - Load the built extension and confirm its dashboard and settings behave exactly as before.
 
 ## Risks and decisions
 
-- **Upstream fragility.** A changed URL, renamed area, or new event wording breaks one source. This
-  is deliberate: failing loudly is safer than a silently shortened schedule. Recovery is a manifest
-  or mapping update.
+- **The domain contract change is the notable one.** It is required because the verified source
+  contains a timed mobile drop-off that a date-only model cannot represent without discarding
+  official window, location, and mode semantics. It is bounded to three additive members, and its
+  ripple is two producer files. If it grows beyond that during implementation, stop and ask.
+- **The variant set is closed.** Only all-day curbside and timed mobile drop-off exist, because only
+  those are verified. Adding a third variant later is a contract change for every client that
+  switches on `collectionMode`, which is the intended cost of making invalid combinations
+  unrepresentable.
+- **Origin pinning is stricter than the source needs today.** The verified redirect stays on the
+  same origin, so nothing legitimate is lost; the rule exists so a future upstream change cannot
+  quietly move retrieval to another host, another port, or plain HTTP. The 3-hop limit leaves the
+  operator room to add a hop without an outage while still refusing an endless chain.
+- **Zone attestation is a hard dependency.** If the operator stops publishing a declared zone, or
+  publishes a different one, ingestion stops for that source until the manifest is re-verified. That
+  is the intended trade: a silent fallback to the manifest zone would shift every timed date by a
+  day the moment the assumption stopped holding, and nothing would signal it.
+- **Identity covers the whole normalized event.** All nine tuple members contribute, including the
+  zone, so any change a person would notice — a moved date, a retimed window, a corrected zone, a
+  relocated drop-off — yields a new identifier instead of silently reusing the old one.
+- **Identifiers are hashed, so they are opaque.** They cannot be read as a date-and-type pair while
+  debugging, and an occurrence the source moves or re-times becomes a new identifier. The readable
+  prefix mitigates the first; the second is inherent to identifying an occurrence by what it is.
+- **Digest truncation.** A truncated SHA-256 is documented as collision-negligible at this scale. If
+  a future source makes that assumption uncomfortable, lengthening the digest changes every
+  identifier and is a contract change, not a tweak.
+- **Upstream fragility.** A changed URL, renamed area, retimed collection, or new event wording
+  breaks one source. This is deliberate: failing loudly beats a silently shortened schedule. The
+  source being a third-party calendar export raises this risk.
 - **`node-ical` inside the API bundle.** `apps/api` bundles workspace packages and their
   implementation dependencies and fails the build if anything else stays external, so `node-ical`
   and its transitive dependencies must bundle cleanly as ESM for `node24`. If they cannot,
@@ -436,11 +809,11 @@ curl --include "$BASE/$AREA/collection-events?from=2026-08-01"
   shared cache or refresh job is out of scope per ADR 0003.
 - **Unrecorded reuse terms.** Public deployment or redistribution of municipal datasets stays out of
   scope. Public availability of the file is not a licence and must not be described as one.
-- **Official versus demo area naming.** Official areas may not correspond to the demo districts.
-  Official naming is preserved; the demo provider's identifiers are not reused or renamed, and the
-  extension's default district is not changed.
-- **Residual and bio remain absent.** The source covers only the waste types recorded in step 1.
-  Nothing in this task generates the odd/even week or holiday-shift rules from the printed guide.
+- **Derived rather than attested facts.** The area name and validity window come from the URL path
+  and the landing page, because `X-WR-CALNAME` is the character `2`. If the operator republishes the
+  file under a different path, that derivation has to be re-verified.
+- **Residual and bio remain absent.** The source covers six waste types and neither of those two.
+  Nothing here generates the odd/even week or holiday-shift rules from the printed guide.
 - **Range semantics.** `SCHEDULE_RANGE_NOT_COVERED` is derived from declared validity only, so a
   source that legitimately contains no collection in a covered range returns an empty list rather
   than an error.
@@ -450,8 +823,13 @@ curl --include "$BASE/$AREA/collection-events?from=2026-08-01"
 - Implement only this task. Ask before adding a dependency beyond `node-ical@0.27.1` and the
   `vitest` configuration for `packages/data-providers`, before changing a public contract beyond the
   additions above, or before expanding scope.
-- Do not modify `packages/domain`, the demo provider, or the extension.
-- Do not commit any municipal calendar file, excerpt, or downloaded fixture.
+- The only permitted `packages/domain` change is the timing, mode, and location addition in scope
+  step 1, plus its test updates.
+- The only permitted demo-provider change is the additive all-day and curbside metadata.
+- Do not modify any file under `apps/extension`.
+- Do not commit any municipal calendar file, excerpt, or downloaded fixture. Keep `cid` values out
+  of the manifest, the source code, and the tests; the source verification record above is the only
+  place a `cid` observation belongs.
 - All code, comments, documentation, examples, and identifiers are written in English.
 
 Implementation starts only after this task and
