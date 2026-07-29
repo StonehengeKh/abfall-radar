@@ -46,13 +46,13 @@ Run Codex after Claude has stopped editing:
 codex review --uncommitted
 ```
 
-Review prompt:
+`codex review --uncommitted` is non-interactive and cannot be combined with a custom review prompt.
+Codex discovers `AGENTS.md` automatically. The applicable task, architecture, design, and shared
+rules must therefore be committed and referenced by `AGENTS.md` before implementation begins.
 
-```text
-Read AGENTS.md, docs/ai/shared-rules.md, the relevant architecture and design documents,
-and the active task. Review all uncommitted changes against the acceptance criteria.
-Do not modify product code. Return evidence-backed findings and a verdict.
-```
+For an interactive review, start `codex`, enter `/review`, select the uncommitted changes, and confirm
+that the active task is in scope. Do not use the interactive surface and the non-interactive command
+for the same review pass.
 
 ## 5. Claude resolves findings
 

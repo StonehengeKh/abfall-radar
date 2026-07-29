@@ -70,6 +70,38 @@ src/
 
 Do not create empty architectural layers. Add a folder when the first owned file exists.
 
+## API composition
+
+`apps/api` is the shared HTTP boundary described in
+[ADR 0002](../decisions/0002-shared-http-api.md). Its internal structure follows three rules.
+
+**The application factory is separate from the process entrypoint.** `buildApp` returns a configured
+instance without binding a port, registering a signal handler, or calling `ready()`. Tests exercise
+the real application through Fastify injection. `server.ts` owns configuration loading, listening, and
+graceful shutdown.
+
+**Cross-cutting concerns are composition functions, not encapsulated plugins.** The validator and
+serializer compilers, the error boundary, and the request-identifier hook are installed on the root
+instance before any route, so no plugin needs an encapsulation escape hatch. Route modules stay
+ordinary Fastify plugins. `@fastify/swagger` is registered before the routes because it collects
+schemas through the `onRoute` hook.
+
+**Route schemas are the contract.** OpenAPI is generated from the runtime schemas and is never
+maintained by hand. Response schemas strip undocumented fields, so a field cannot be serialized
+without appearing in the contract. Documentation endpoints are toggled by configuration rather than by
+route code.
+
+Expected failures cross the boundary as RFC 9457 Problem Details from one centralized error handler.
+Unexpected failures are logged in full with their request identifier and returned sanitized.
+
+The API uses `service area` as the location-neutral transport term for the domain `District` model.
+Transport naming and domain naming are allowed to differ; changing the domain model is a separate
+contract-change task.
+
+The production artifact bundles workspace packages, because shared packages publish TypeScript
+sources rather than build output, and keeps only the third-party runtime packages the application
+itself declares external. The build fails if any other package remains external.
+
 ## Data provider contract
 
 Every adapter returns normalized validated data and source metadata. Provider-specific DTOs and

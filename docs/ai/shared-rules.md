@@ -18,8 +18,8 @@ URLs, calendar formats, or administrative hierarchy.
 Development sequence:
 
 1. Browser extension.
-2. Responsive web application.
-3. Node.js API.
+2. Shared documented Node.js API.
+3. Responsive web application.
 4. Optional Expo mobile application.
 
 Finish and validate the active stage before implementing the next stage.
