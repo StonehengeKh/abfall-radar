@@ -37,7 +37,27 @@ Application-specific scripts are exposed from the root when the application beco
 
 ## Current milestone
 
-The shared API foundation is runnable and documented:
+The API serves official municipal collection schedules for the verified Koblenz Stadtmitte area,
+ingested server-side from an allowlisted calendar file:
+
+- a server-owned source catalogue; no client can supply or influence an upstream URL, host, or port;
+- bounded retrieval with one 5-second deadline, a 1 MiB body limit, origin pinning by scheme, hostname,
+  and effective port, and at most three redirect hops;
+- normalized events in two closed variants — an all-day curbside collection, and a timed mobile drop-off
+  with a window, a zone, and a place — so an incomplete combination cannot be represented;
+- deterministic event identities derived from what an event is, not from its position in a file;
+- provenance, validity window, freshness, and declared waste-type coverage on every response;
+- a 6-hour fresh cache with 7-day stale-if-error, so a temporarily unreachable source yields an
+  explicitly stale schedule rather than an error, and an error rather than a guess when nothing valid
+  exists.
+
+An unmapped or malformed upstream entry fails the whole refresh. A partial schedule is
+indistinguishable from a complete one to the person reading it, so ingestion never drops what it does
+not understand.
+
+The browser extension still runs on demo schedules; migrating it to the API is later work.
+
+The shared API foundation underneath is runnable and documented:
 
 - a strict TypeScript Fastify application with an application factory separated from the process
   entrypoint;
@@ -45,11 +65,11 @@ The shared API foundation is runnable and documented:
 - an OpenAPI contract generated from the route schemas, with Swagger UI and a machine-readable
   document;
 - one centralized RFC 9457 Problem Details error boundary;
-- a provider catalogue and service-area slice over the existing demo provider;
+- a provider catalogue and service-area slice covering the demo and official providers;
 - integration tests driven through Fastify injection.
 
-The API exposes demo provider metadata only. No official municipal source is ingested yet and no
-client consumes the API.
+No client consumes the API yet. A provider whose `sourceKind` is `demo` returns generated sample data,
+which must never be presented as official municipal data.
 
 The browser extension MVP includes:
 
@@ -60,7 +80,8 @@ The browser extension MVP includes:
 - a typed provider boundary and clearly labelled demo data;
 - unit and component tests.
 
-The extension runs on demo schedules until an official municipal provider is implemented.
+The extension runs on demo schedules. Official data reaches it when it is migrated to consume the API,
+which is a later task.
 
 ### Browser extension development
 

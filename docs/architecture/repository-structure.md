@@ -109,3 +109,28 @@ parsers stay inside the provider adapter. A product surface consumes normalized 
 
 Provider failures are explicit. Fallback or cached data carries a freshness state and is never
 silently presented as current official data.
+
+`packages/data-providers` has two entry points, because the browser extension resolves its root while
+official ingestion needs Node built-ins and a calendar parser:
+
+| Entry | Contains |
+| --- | --- |
+| `@abfall-radar/data-providers` | Provider contracts, the demo provider, and source metadata types. Browser-safe. |
+| `@abfall-radar/data-providers/node` | Retrieval, parsing, hashing, caching, and official municipal adapters. |
+
+The root barrel never re-exports anything under `src/node/`, and a test asserts that by walking the
+root export's import graph. A new municipal adapter belongs under the `./node` subpath in its own
+folder, holding that municipality's names, URLs, and mappings; the retrieval, caching, identity, and
+normalization modules stay manifest-driven and location-neutral.
+
+Retrieval reads an exact allowlisted URL from a server-owned manifest. No request parameter, header, or
+body may reach it, so the server-controlled catalogue remains the whole security model rather than one
+layer of it.
+
+`apps/api` orchestrates: it resolves a provider and a service area, filters the requested range, maps
+domain names onto transport names, and translates failures into Problem Details. It does not parse a
+calendar format and does not know a municipal host.
+
+An adapter's external dependencies — `fetch` and a clock — are injected with the real implementations as
+defaults, so failure, staleness, and expiry are testable without a network, a wait, or a
+production-only switch.

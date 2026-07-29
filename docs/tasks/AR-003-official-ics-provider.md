@@ -133,6 +133,21 @@ date. That coincidence must not be relied on, which is why a synthetic event who
 dates differ is a required test. The source location value carries a trailing space, so trimming is
 required rather than cosmetic.
 
+### Observed `LOCATION` usage
+
+The source populates `LOCATION` on **every** entry, but means two different things by it:
+
+| Entries | `LOCATION` value | Meaning |
+| --- | --- | --- |
+| All 44 all-day | `Stadtmitte` | The collection area, identical to the manifest `areaName` |
+| Both timed | `Rizzastraße Ecke Südallee ` | An actual street corner to bring waste to |
+
+The curbside value is therefore redundant with `meta.serviceArea`, while the timed value is essential.
+`DESCRIPTION` is also present on all 46 entries and is never exposed. Treating a curbside `LOCATION`
+as an error would reject the whole source; ignoring any curbside `LOCATION` would risk discarding a
+real place. Scope step 4 resolves this by accepting exactly the area label and rejecting anything
+else.
+
 ### Identifier note
 
 The verified official `serviceAreaId` is `koblenz-stadtmitte`, which is also the identifier of a
@@ -233,8 +248,9 @@ carrying `startsAt`, `endsAt`, and the source time zone. The collection mode fol
 table. When the two disagree — a mobile-drop-off mapping arriving as an all-day entry, or the
 reverse — the refresh fails, because the source has changed in a way the mapping no longer
 describes. The same applies whenever upstream data cannot produce one of the valid domain variants,
-for example a mobile drop-off whose entry has no `DTEND` or no `LOCATION`: fail the refresh rather
-than emit a half-populated event or drop the entry.
+for example a mobile drop-off whose entry has no `DTEND` or no usable `LOCATION`: fail the refresh
+rather than emit a half-populated event or drop the entry. A curbside entry whose `LOCATION` is
+neither absent nor the redundant area label fails for the same reason; see **Location** below.
 
 **Calendar zone.** Before normalizing any timed event, require that the calendar declares exactly
 one usable zone and that it equals the manifest zone. A declaration that is missing, empty,
@@ -248,9 +264,31 @@ in the validated zone with `Intl.DateTimeFormat` and **`formatToParts`**, readin
 `month`, and `day` parts, with the calendar pinned to `gregory` and the numbering system to `latn`.
 Never parse a formatted string, and never derive the date in UTC or in the server's local zone.
 
-**Location.** The official location name is preserved, trimmed, and its internal whitespace
-collapsed before validation, because the domain rejects an untrimmed name. Nothing else from the
-source entry is exposed: `DESCRIPTION`, `UID`, and `DTSTAMP` stay internal.
+**Location.** Every `LOCATION` value is first unwrapped from any property parameters, RFC 5545
+unescaped, trimmed, internally whitespace-collapsed, and Unicode NFC normalized. What happens next
+depends on the timing form, because the verified source uses the property for two different things.
+
+*Timed mobile drop-off.* The normalized name is required, must be non-empty, and is preserved as
+`location.name`. An entry with no usable location fails the refresh rather than emitting a
+half-populated event.
+
+*All-day curbside.* A curbside event carries no location, because there is nowhere to go. The
+property is nevertheless present on every verified curbside entry, where it repeats the collection
+area:
+
+- `LOCATION` absent — accept the entry.
+- `LOCATION` present and exactly equal to the manifest `areaName`, comparing both sides after the same
+  normalization — accept the entry and omit `location`, because this is only the redundant
+  service-area label a response already carries as `meta.serviceArea`.
+- `LOCATION` empty, whitespace-only, or different from the manifest `areaName` — fail the complete
+  refresh as `UPSTREAM_SOURCE_INVALID`.
+
+The asymmetry is deliberate. Silently discarding a curbside location that is *not* the area label
+would present "bring this to a place" as "put the bin out", which is the one substitution this
+ingestion must never make. Tolerating exactly the redundant label avoids failing on data the source
+has published all along.
+
+Nothing else from the source entry is exposed: `DESCRIPTION`, `UID`, and `DTSTAMP` stay internal.
 
 **Identity.** A deterministic identifier is derived from the normalized event identity, not from its
 position in the file. The identity tuple has nine members, in this fixed order, with absent members
@@ -544,7 +582,8 @@ structured log line.
       official naming.
 - [ ] The collection-events route returns documented fresh events with full provenance for a range
       inside the validity window.
-- [ ] An all-day event exposes an all-day timing and a curbside mode and no location.
+- [ ] An all-day event exposes an all-day timing and a curbside mode and no location, including when
+      the upstream entry carried the redundant area label in `LOCATION`.
 - [ ] A timed event exposes `startsAt`, `endsAt`, `timeZone`, a mobile-drop-off mode, and a trimmed
       location name.
 - [ ] `coverage.wasteTypes` comes from the manifest and is never derived from the returned events.
@@ -592,6 +631,12 @@ structured log line.
       normalized, and a missing, empty, duplicated, malformed, or mismatching declaration fails the
       refresh as `UPSTREAM_SOURCE_INVALID`.
 - [ ] No code path falls back to the manifest zone when the calendar does not attest it.
+- [ ] A curbside entry with no `LOCATION`, or with a `LOCATION` equal to the manifest `areaName` after
+      unescaping, trimming, whitespace collapse, and NFC normalization, is accepted, and the event
+      exposes no location.
+- [ ] A curbside entry whose `LOCATION` is empty, whitespace-only, or any value other than the manifest
+      `areaName` fails the complete refresh as `UPSTREAM_SOURCE_INVALID`. No differing curbside location
+      is ever silently discarded.
 - [ ] An upstream entry that cannot produce a valid event variant fails the refresh rather than
       producing a half-populated event or silently dropping the entry.
 - [ ] A content type outside the recorded allowlist is rejected.
@@ -658,6 +703,24 @@ Parsing, timing, and identity, in `packages/data-providers`:
       or server-local derivation fails the test;
 - [ ] `startsAt`, `endsAt`, `timeZone`, and `collectionMode` are preserved exactly;
 - [ ] a location name with a trailing space and a doubled internal space is trimmed and collapsed;
+- [ ] with the process time zone pinned to `Europe/Berlin`, a one-day all-day event crossing the
+      spring-forward boundary and one crossing the fall-back boundary are both accepted, and an omitted
+      `DTEND` on the fall-back date is accepted, so an elapsed-time span check fails the test;
+- [ ] a multi-day all-day span is still rejected, and an end date before the start date is rejected,
+      which an elapsed-time comparison against 24 hours would let through;
+- [ ] a curbside entry with no `LOCATION` is accepted and exposes no location;
+- [ ] a curbside entry whose `LOCATION` is exactly the manifest `areaName` is accepted and exposes no
+      location;
+- [ ] the same area label with surrounding whitespace, a doubled internal space, and an equivalent NFD
+      spelling is accepted, so an encoding difference nobody can see cannot take a source out;
+- [ ] a curbside entry with an empty or whitespace-only `LOCATION` fails the refresh;
+- [ ] a curbside entry whose `LOCATION` is a different place, such as a street corner, fails the refresh
+      rather than being silently discarded, and one such entry fails the whole refresh rather than being
+      dropped from an otherwise complete schedule;
+- [ ] a whitespace variant that would collapse across a word boundary, such as `Stadt  mitte` against
+      `Stadtmitte`, still fails;
+- [ ] the same street-corner value that a curbside entry is rejected for is preserved on a timed
+      mobile-drop-off entry;
 - [ ] one combined upstream event produces two normalized events;
 - [ ] a fixture with two combined entries on different dates produces four timed events with four
       distinct identifiers, so an upstream entry count is never mistaken for a normalized event
@@ -692,7 +755,12 @@ Retrieval and cache, in `packages/data-providers`:
 - [ ] a redirect to another hostname is refused and reports unavailable, including a hostname that
       merely ends with the approved one;
 - [ ] a redirect to another port on the approved hostname is refused and reports unavailable;
-- [ ] a content type outside the allowlist is rejected;
+- [ ] a content type outside the allowlist is rejected, and the response body is cancelled exactly once
+      without being consumed, asserted with a streaming body carrying a cancellation spy;
+- [ ] a cancellation that itself throws does not change the reported reason;
+- [ ] every other branch that abandons a response before consuming it — a followed redirect, a refused
+      redirect, a non-2xx status, an over-limit `Content-Length`, and a stream crossing the limit —
+      cancels the body or the reader;
 - [ ] a non-2xx status reports unavailable;
 - [ ] a second call inside the fresh TTL does not call fetch;
 - [ ] concurrent calls coalesce into one fetch;
@@ -817,6 +885,141 @@ curl --include "$BASE/$AREA/collection-events?from=2026-03-01"
 - **Range semantics.** `SCHEDULE_RANGE_NOT_COVERED` is derived from declared validity only, so a
   source that legitimately contains no collection in a covered range returns an empty list rather
   than an error.
+
+## Approved implementation clarifications
+
+- Date: 2026-07-29
+- Approved by: repository owner
+- Scope: task-level implementation detail only. ADR 0003 is unchanged except where noted in item 5,
+  which narrows one of its statements rather than reversing it.
+
+### 1. New problem code for a provider without an official calendar
+
+The error contract above has no code for a registered provider that publishes no official calendar for
+an area, which is exactly what `GET /api/v1/providers/demo/service-areas/{serviceAreaId}/collection-events`
+is. `COLLECTION_EVENTS_NOT_AVAILABLE` is added with status `404` and type
+`urn:abfall-radar:problem:collection-events-not-available`.
+
+`404` because the resource does not exist for that pair; `501` would claim the whole server lacks the
+capability. Serving demo events instead was rejected: it would require inventing a retrieval time and a
+validity window, which is demo data in official clothing.
+
+### 2. Range coverage means fully contained
+
+`SCHEDULE_RANGE_NOT_COVERED` is returned unless the requested range lies entirely inside the declared
+validity window. A range straddling the boundary is rejected rather than answered in part, so a
+response is never silently incomplete.
+
+### 3. Provider-runtime dependency seam in `apps/api`
+
+`provider-catalogue.ts` exposes `createProviderCatalogue(runtime)` instead of a module-level constant,
+and `buildApp` accepts an optional `providerRuntime` of `{ fetch, clock }` and decorates the built
+catalogue onto the instance. `listProviders` and `findProviderEntry` take the catalogue as a parameter.
+
+This is what makes stale responses, an initial `502` and `503`, cache expiry, and refresh coalescing
+deterministically testable. Both members default to the real implementations, so production configures
+nothing, and no production-only switch, mutable global, environment backdoor, or manifest override was
+added.
+
+### 4. Dependency and manifest changes
+
+- `node-ical` `0.27.1` added to the root pnpm catalog and to `packages/data-providers` dependencies.
+- `@types/node` and `vitest` added to `packages/data-providers` development dependencies, both already
+  in the catalog. `@types/node` is required for `node:crypto` typings in the `./node` boundary.
+- `packages/data-providers` gains a `"./node"` entry in its `exports` map plus `test` and `test:watch`
+  scripts, and its `tsconfig.json` gains `"types": ["node"]`.
+- `pnpm-lock.yaml` gains `node-ical` and four transitive packages: `rrule-temporal`,
+  `temporal-polyfill`, `temporal-spec`, and `temporal-utils`. None is declared directly and none has a
+  peer dependency, so `strict-peer-dependencies` needed no exception.
+
+No other dependency was added. `apps/api` declares nothing new: `node-ical` is bundled, so the build's
+external allowlist is unchanged.
+
+### 5. A digest collision fails the refresh
+
+This narrows two statements above: "Do not fail a refresh over an identifier collision that
+identity-derived hashing already prevents" in scope step 4, and the acceptance criterion "No refresh
+fails because of an identifier collision".
+
+Identity-derived hashing prevents a *semantic* collision — two events that differ in what they are can
+never be handed the same identity tuple. It does not prevent a **truncated digest** collision between
+two different canonical identities. That is negligible at this scale but not impossible, and collapsing
+it would silently drop a real collection, which is the failure mode ADR 0003 exists to prevent.
+
+The rule implemented is therefore: equal identifier **and** equal canonical identity collapse; equal
+identifier and **different** canonical identity fails the refresh. No new public problem code — a new
+internal reason `identity-collision` maps to the existing `UPSTREAM_SOURCE_INVALID` `502`. The identity
+module accepts an injected digest function, defaulting to the real truncated SHA-256, so the collision
+path is covered by a deterministic test rather than left unexercised.
+
+### 6. One 404 response, not three
+
+An OpenAPI operation permits a single entry per status code, so registering `PROVIDER_NOT_FOUND`,
+`SERVICE_AREA_NOT_FOUND`, and `COLLECTION_EVENTS_NOT_AVAILABLE` as three 404 responses would have them
+overwrite each other. The operation documents one 404 whose schema is a `oneOf` over the three,
+discriminated on `code`, with a named example for each.
+
+### 7. Failure scenarios are verified by injected tests, not by the manual boot
+
+This replaces the manual step "Force a retrieval failure — point the manifest host at an unreachable
+local address in a scratch run". Forcing cache age, an upstream failure, or an empty cache against a
+production artifact would require either a six-hour wait or a production-only switch.
+
+Stale `200`, an initial `502` and `503`, cache expiry, and refresh coalescing are covered by tests using
+the injected fetch and clock. The manual production boot check verifies what a real artifact can honestly
+show: that `dist/server.js` starts, that health, documentation, and the OpenAPI document work, that the
+official happy path works, that range and not-found responses work, that a second identical request
+returns the identical `retrievedAt`, and that shutdown is graceful.
+
+### 8. Additional loud failures in the adapter
+
+Three guards beyond the letter of the original scope were added, each preventing a silently incomplete
+schedule rather than adding a feature:
+
+- **A positive window is required for a mobile drop-off**, not merely a present end instant. `node-ical`
+  synthesizes an end equal to the start when a source attests no `DTEND`, so "no window" and
+  "zero-length window" are indistinguishable, and neither is actionable. Asserting only a missing `end`
+  would have passed against the synthesized value.
+- **An all-day entry spanning more than one calendar day fails**, because emitting a single event for it
+  would under-report the collection. The span is measured in **whole calendar days**, using
+  `differenceInCalendarDays` from the `date-fns` dependency the package already declares — never
+  `differenceInDays`, `differenceInMilliseconds`, or a 24-hour constant. A one-day all-day event is 23
+  hours long across a spring-forward date and 25 across a fall-back one, so an elapsed-time comparison
+  both rejects a valid event across the fall-back date and accepts an end date that precedes its start.
+  A zero-day and a one-day span are both accepted: for a `VALUE=DATE` entry with no `DTEND` the parser
+  applies the RFC 5545 one-day default rather than setting the end equal to the start, so the check stays
+  independent of which defaulting rule applied. This comparison is the only place calendar-day arithmetic
+  is used; the normalized event date is still read from the local components directly. The timed
+  mobile-drop-off window remains an instant comparison, which is the correct semantics for two instants.
+- **Entries sharing a `UID` fail.** The parse result is keyed by `UID`, so duplicates would collapse and
+  shorten the schedule; the raw `VEVENT` count is compared against the parsed count to catch it.
+
+The curbside `LOCATION` rule went through two wrong answers before the current one, which is worth
+recording because both failure modes are tempting:
+
+1. **Rejecting any curbside `LOCATION`** was implemented first. It rejected the entire verified source:
+   all 44 all-day entries carry `LOCATION:Stadtmitte`.
+2. **Ignoring any curbside `LOCATION`** replaced it. That passed the live source but would silently
+   discard a genuine place if the operator ever put one there — presenting "bring this somewhere" as
+   "put the bin out".
+
+The rule now implemented is the narrow exception: accept an absent `LOCATION`, accept one that is
+exactly the manifest `areaName` after unescaping, trimming, whitespace collapse, and NFC normalization,
+and fail the complete refresh on anything else. Scope step 4 **Location**, the source verification
+record, the acceptance criteria, and the test requirements above were all updated to state this, so the
+task no longer contradicts this clarification.
+
+### 9. Runtime validation of the parse result uses type guards, not Zod
+
+`packages/data-providers` does not declare `zod`, and adding it would exceed the dependency changes
+approved in item 4. The `node-ical` result is narrowed with explicit hand-written guards instead. Every
+normalized event is still validated through `CollectionEventSchema`, which the domain owns.
+
+### 10. `timeZone` is not IANA-validated in the domain
+
+`packages/domain` validates `timing.timeZone` as a non-empty string only. Adding a resolvability check
+would put `Intl` inside the domain, and the official adapter already requires the zone to equal the
+attested manifest zone before any event is constructed.
 
 ## Implementation boundaries
 

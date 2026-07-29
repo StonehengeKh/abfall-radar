@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { z } from 'zod';
 import { buildApp } from './app';
 import { PROBLEM_CONTENT_TYPE } from './http/error-handler';
-import { DOCS_ROUTE_PREFIX, OPENAPI_DOCUMENT_ROUTE } from './http/openapi';
+import { COLLECTION_EVENTS_PATH, DOCS_ROUTE_PREFIX, OPENAPI_DOCUMENT_ROUTE } from './http/openapi';
 import { buildTestApp } from './test/build-test-app';
 
 const SHUTDOWN_SIGNALS = ['SIGINT', 'SIGTERM'] as const;
@@ -132,7 +132,7 @@ describe('generated OpenAPI contract', () => {
     expect(document.openapi).toBe('3.1.0');
     expect(document.info.title).toBe('AbfallRadar API');
     expect(document.info.description).toContain('never be presented as official municipal data');
-    expect(document.tags.map((tag) => tag.name)).toEqual(['Operations', 'Providers']);
+    expect(document.tags.map((tag) => tag.name)).toEqual(['Operations', 'Providers', 'Schedules']);
   });
 
   it('documents exactly the implemented operations', async () => {
@@ -141,6 +141,7 @@ describe('generated OpenAPI contract', () => {
     expect(Object.keys(document.paths).toSorted()).toEqual([
       '/api/v1/providers',
       '/api/v1/providers/{providerId}/service-areas',
+      COLLECTION_EVENTS_PATH,
       '/health',
     ]);
   });
@@ -162,6 +163,12 @@ describe('generated OpenAPI contract', () => {
       'listProviderServiceAreas',
       'Providers',
       ['200', '400', '404', '500'],
+    ],
+    [
+      COLLECTION_EVENTS_PATH,
+      'listCollectionEvents',
+      'Schedules',
+      ['200', '400', '404', '422', '500', '502', '503'],
     ],
   ] as const)(
     'documents %s with an operation identifier, summary, tag, and response set',
@@ -213,11 +220,26 @@ describe('generated OpenAPI contract', () => {
     const document = await fetchDocument();
     const schemaNames = Object.keys(document.components.schemas).toSorted();
 
-    expect(schemaNames).toContain('ProblemDetails');
-    expect(schemaNames).toContain('ValidationProblem');
-    expect(schemaNames).toContain('ProviderNotFoundProblem');
-    expect(schemaNames).toContain('Provider');
-    expect(schemaNames).toContain('ServiceArea');
+    for (const name of [
+      'ProblemDetails',
+      'ValidationProblem',
+      'ProviderNotFoundProblem',
+      'ServiceAreaNotFoundProblem',
+      'CollectionEventsNotAvailableProblem',
+      'CollectionEventsNotFoundProblem',
+      'ScheduleRangeNotCoveredProblem',
+      'UpstreamSourceInvalidProblem',
+      'UpstreamSourceUnavailableProblem',
+      'Provider',
+      'ServiceArea',
+      'CollectionEvent',
+      'CurbsideCollectionEvent',
+      'MobileDropOffCollectionEvent',
+      'CollectionEventListResponse',
+      'CollectionEventMeta',
+    ]) {
+      expect(schemaNames, name).toContain(name);
+    }
 
     for (const name of schemaNames) {
       expect(name).not.toMatch(/Input$/);
@@ -238,9 +260,17 @@ describe('generated OpenAPI contract', () => {
       'HealthResponse',
       'ProviderListResponse',
       'ServiceAreaListResponse',
+      'CollectionEventListResponse',
+      'CurbsideCollectionEvent',
+      'MobileDropOffCollectionEvent',
       'ProblemDetails',
       'ValidationProblem',
       'ProviderNotFoundProblem',
+      'ServiceAreaNotFoundProblem',
+      'CollectionEventsNotAvailableProblem',
+      'ScheduleRangeNotCoveredProblem',
+      'UpstreamSourceInvalidProblem',
+      'UpstreamSourceUnavailableProblem',
     ]) {
       expect(examplesFor(name), name).toEqual(expect.any(Array));
     }
@@ -272,6 +302,108 @@ describe('generated OpenAPI contract', () => {
     expect(parameters).toEqual(expect.any(Array));
     expect(JSON.stringify(parameters)).toContain('maxLength');
     expect(JSON.stringify(parameters)).toContain('pattern');
+  });
+
+  it('documents the event as a oneOf discriminated on collectionMode', async () => {
+    const document = await fetchDocument();
+    const event = document.components.schemas.CollectionEvent as
+      | { oneOf?: { $ref?: string }[]; anyOf?: unknown; discriminator?: unknown }
+      | undefined;
+
+    expect(event?.anyOf).toBeUndefined();
+    expect(event?.oneOf?.map((branch) => branch.$ref)).toEqual([
+      '#/components/schemas/CurbsideCollectionEvent',
+      '#/components/schemas/MobileDropOffCollectionEvent',
+    ]);
+    expect(event?.discriminator).toEqual({
+      propertyName: 'collectionMode',
+      mapping: {
+        curbside: '#/components/schemas/CurbsideCollectionEvent',
+        mobile_drop_off: '#/components/schemas/MobileDropOffCollectionEvent',
+      },
+    });
+  });
+
+  it('permits no incomplete mobile drop-off in either event branch', async () => {
+    const document = await fetchDocument();
+    const branchOf = (name: string) =>
+      document.components.schemas[name] as
+        | { required?: string[]; properties?: Record<string, unknown> }
+        | undefined;
+
+    const mobile = branchOf('MobileDropOffCollectionEvent');
+    const curbside = branchOf('CurbsideCollectionEvent');
+
+    // The window, the zone, and the place are all mandatory on the branch that tells someone to travel.
+    expect(mobile?.required).toEqual(expect.arrayContaining(['timing', 'location']));
+    expect(
+      (document.components.schemas.TimeWindowTiming as { required?: string[] } | undefined)
+        ?.required,
+    ).toEqual(expect.arrayContaining(['startsAt', 'endsAt', 'timeZone']));
+
+    // And the branch that does not has nowhere to put one.
+    expect(Object.keys(curbside?.properties ?? {})).not.toContain('location');
+  });
+
+  it('documents one 404 covering all three reasons, discriminated on code', async () => {
+    const document = await fetchDocument();
+    const responses = document.paths[COLLECTION_EVENTS_PATH]?.get?.responses ?? {};
+
+    // An operation permits a single entry per status code, so the three reasons must share one response.
+    expect(Object.keys(responses).filter((status) => status === '404')).toHaveLength(1);
+
+    const notFound = document.components.schemas.CollectionEventsNotFoundProblem as
+      | { oneOf?: { $ref?: string }[]; discriminator?: { mapping?: Record<string, string> } }
+      | undefined;
+
+    expect(notFound?.oneOf).toHaveLength(3);
+    expect(Object.keys(notFound?.discriminator?.mapping ?? {}).toSorted()).toEqual([
+      'COLLECTION_EVENTS_NOT_AVAILABLE',
+      'PROVIDER_NOT_FOUND',
+      'SERVICE_AREA_NOT_FOUND',
+    ]);
+  });
+
+  it.each([
+    [200, ['fresh', 'stale']],
+    [404, ['collectionEventsNotAvailable', 'providerNotFound', 'serviceAreaNotFound']],
+  ] as const)(
+    'publishes named %s examples on the collection-events operation',
+    async (status, names) => {
+      const document = await fetchDocument();
+      const response = document.paths[COLLECTION_EVENTS_PATH]?.get?.responses?.[String(status)];
+      const media = Object.values(response?.content ?? {})[0] as
+        | { examples?: Record<string, { value?: unknown }> }
+        | undefined;
+
+      expect(Object.keys(media?.examples ?? {}).toSorted()).toEqual([...names]);
+
+      for (const example of Object.values(media?.examples ?? {})) {
+        expect(example.value).toBeDefined();
+      }
+    },
+  );
+
+  it('states the freshness difference between the two success examples', async () => {
+    const document = await fetchDocument();
+    const media = Object.values(
+      document.paths[COLLECTION_EVENTS_PATH]?.get?.responses?.['200']?.content ?? {},
+    )[0] as
+      | { examples?: Record<string, { value?: { meta?: Record<string, unknown> } }> }
+      | undefined;
+
+    expect(media?.examples?.fresh?.value?.meta?.freshness).toBe('fresh');
+    expect(media?.examples?.stale?.value?.meta?.freshness).toBe('stale');
+    // The stale example keeps the earlier retrieval timestamp rather than pretending to be current.
+    expect(media?.examples?.stale?.value?.meta?.retrievedAt).not.toBe(
+      media?.examples?.fresh?.value?.meta?.retrievedAt,
+    );
+  });
+
+  it('never advertises the direct calendar download URL', async () => {
+    const document = await fetchDocument();
+
+    expect(JSON.stringify(document)).not.toContain('ics-stadtmitte.ics');
   });
 
   it('prevents undocumented fields in every response schema', async () => {

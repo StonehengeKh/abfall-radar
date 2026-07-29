@@ -49,6 +49,11 @@ export const createDemoSchedule = (
       date,
       title: type,
       source: 'demo',
+      // Demo schedules have always meant "put the bin out that day". Stating it explicitly is what
+      // the closed variant set requires; the identifiers, dates, and waste types are unchanged, so
+      // no product surface changes.
+      collectionMode: 'curbside',
+      timing: { kind: 'all_day' },
     };
   });
 

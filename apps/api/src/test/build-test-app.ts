@@ -1,6 +1,6 @@
 import type { Writable } from 'node:stream';
 import { z } from 'zod';
-import { type ApiApp, buildApp } from '../app';
+import { type ApiApp, buildApp, type BuildAppOptions } from '../app';
 import type { AppConfig } from '../config/env';
 
 export const FAILING_ROUTE = '/__unexpected';
@@ -18,6 +18,8 @@ export interface BuildTestAppOptions {
    * and one that accepts a body so the HTTP framework can reject an unsupported media type.
    */
   readonly withFailingRoutes?: boolean;
+  /** Scripted retrieval and a controllable clock, so no test reaches the network or waits on a TTL. */
+  readonly providerRuntime?: BuildAppOptions['providerRuntime'];
 }
 
 const baseConfig: AppConfig = {
@@ -29,7 +31,12 @@ const baseConfig: AppConfig = {
 export const buildTestApp = async (options: BuildTestAppOptions = {}): Promise<ApiApp> => {
   const app = await buildApp(
     { ...baseConfig, ...options.config },
-    options.logDestination === undefined ? {} : { logDestination: options.logDestination },
+    {
+      ...(options.logDestination === undefined ? {} : { logDestination: options.logDestination }),
+      ...(options.providerRuntime === undefined
+        ? {}
+        : { providerRuntime: options.providerRuntime }),
+    },
   );
 
   if (options.withFailingRoutes === true) {
