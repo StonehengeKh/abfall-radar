@@ -1,6 +1,31 @@
 {
   "name": "@abfall-radar/api",
   "private": true,
-  "version": "0.0.0",
-  "type": "module"
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "build": "tsx scripts/build.ts",
+    "dev": "tsx watch src/server.ts",
+    "start": "node --enable-source-maps dist/server.js",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@abfall-radar/data-providers": "workspace:*",
+    "@abfall-radar/domain": "workspace:*",
+    "@fastify/swagger": "catalog:",
+    "@fastify/swagger-ui": "catalog:",
+    "@fastify/type-provider-zod": "catalog:",
+    "fastify": "catalog:",
+    "zod": "catalog:"
+  },
+  "devDependencies": {
+    "@types/node": "catalog:",
+    "esbuild": "catalog:",
+    "openapi-types": "catalog:",
+    "tsx": "catalog:",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
+  }
 }

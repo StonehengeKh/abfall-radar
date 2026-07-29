@@ -9,9 +9,12 @@ business, provider, client, and design-system code lives in `packages/`.
 ## Product sequence
 
 1. Browser extension.
-2. Responsive web application.
-3. Node.js API.
+2. Shared documented Node.js API.
+3. Responsive web application.
 4. Optional Expo mobile application.
+
+The shared API comes before official provider ingestion and before any additional client, so every
+client consumes one validated contract instead of parsing municipal formats itself.
 
 Only the active product stage is implemented. Future application folders reserve architectural
 boundaries; their framework dependencies are added when their first vertical slice is approved.
@@ -26,12 +29,27 @@ boundaries; their framework dependencies are added when their first vertical sli
 ```bash
 pnpm install
 pnpm dev:extension
+pnpm dev:api
 pnpm check
 ```
 
 Application-specific scripts are exposed from the root when the application becomes active.
 
 ## Current milestone
+
+The shared API foundation is runnable and documented:
+
+- a strict TypeScript Fastify application with an application factory separated from the process
+  entrypoint;
+- validated startup configuration, structured logging, request identifiers, and graceful shutdown;
+- an OpenAPI contract generated from the route schemas, with Swagger UI and a machine-readable
+  document;
+- one centralized RFC 9457 Problem Details error boundary;
+- a provider catalogue and service-area slice over the existing demo provider;
+- integration tests driven through Fastify injection.
+
+The API exposes demo provider metadata only. No official municipal source is ingested yet and no
+client consumes the API.
 
 The browser extension MVP includes:
 
@@ -57,6 +75,23 @@ pnpm --filter @abfall-radar/extension build
 ```
 
 Load `apps/extension/.output/chrome-mv3` from `chrome://extensions` with Developer mode enabled.
+
+### API development
+
+```bash
+pnpm dev:api
+```
+
+Then open <http://localhost:3000/docs> for the interactive contract reference and
+<http://localhost:3000/openapi.json> for the generated OpenAPI document. For a production build:
+
+```bash
+pnpm --filter @abfall-radar/api build
+pnpm --filter @abfall-radar/api start
+```
+
+See [the API README](apps/api/README.md) for configuration, routes, the error contract, and request
+correlation.
 
 ## Repository map
 
