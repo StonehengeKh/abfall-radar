@@ -2,7 +2,33 @@ import fastifySwagger, { type SwaggerTransformObject } from '@fastify/swagger';
 import fastifySwaggerUi from '@fastify/swagger-ui';
 import { createJsonSchemaTransform, jsonSchemaTransformObject } from '@fastify/type-provider-zod';
 import type { FastifyInstance } from 'fastify';
+import { COLLECTION_EVENTS_EXAMPLES } from '../routes/v1/collection-events.schemas';
 import { PROBLEM_CONTENT_TYPE } from './error-handler';
+import { COLLECTION_EVENTS_NOT_FOUND_EXAMPLES } from './problem-details';
+
+export const COLLECTION_EVENTS_PATH =
+  '/api/v1/providers/{providerId}/service-areas/{serviceAreaId}/collection-events';
+
+/** Unions whose branches are decided by one property, republished as a discriminated `oneOf`. */
+const DISCRIMINATORS: readonly DiscriminatorSpec[] = [
+  { schema: 'CollectionEvent', propertyName: 'collectionMode' },
+  { schema: 'CollectionEventsNotFoundProblem', propertyName: 'code' },
+];
+
+const RESPONSE_EXAMPLES: readonly ResponseExampleSpec[] = [
+  {
+    path: COLLECTION_EVENTS_PATH,
+    method: 'get',
+    status: 200,
+    examples: COLLECTION_EVENTS_EXAMPLES,
+  },
+  {
+    path: COLLECTION_EVENTS_PATH,
+    method: 'get',
+    status: 404,
+    examples: COLLECTION_EVENTS_NOT_FOUND_EXAMPLES,
+  },
+];
 
 export const DOCS_ROUTE_PREFIX = '/docs';
 
@@ -259,15 +285,176 @@ export const pruneUnreferencedComponentSchemas = (document: unknown): void => {
   }
 };
 
-export const createDocumentTransform = (): SwaggerTransformObject => (documentObject) => {
-  const document = structuredClone(jsonSchemaTransformObject(documentObject));
+export interface DiscriminatorSpec {
+  /** The registered component schema name. */
+  readonly schema: string;
+  readonly propertyName: string;
+}
 
-  resolveResponseDescriptions(document);
-  applyProblemDetailsMediaType(document);
-  pruneUnreferencedComponentSchemas(document);
+/** Zod emits a literal as `const`; older emitters use a single-member `enum`. Both are read here. */
+const literalValueOf = (schema: unknown, propertyName: string): string | undefined => {
+  if (!isRecord(schema) || !isRecord(schema.properties)) {
+    return undefined;
+  }
 
-  return document;
+  const property = schema.properties[propertyName];
+
+  if (!isRecord(property)) {
+    return undefined;
+  }
+
+  if (typeof property.const === 'string') {
+    return property.const;
+  }
+
+  return Array.isArray(property.enum) &&
+    property.enum.length === 1 &&
+    typeof property.enum[0] === 'string'
+    ? property.enum[0]
+    : undefined;
 };
+
+/**
+ * Republishes a union component as an OpenAPI `oneOf` with a discriminator.
+ *
+ * Zod emits a discriminated union as `anyOf` with no discriminator, which is weaker than the contract
+ * these unions actually satisfy: exactly one branch matches, and one property decides which. Stating
+ * that lets a generated client produce an exhaustive switch instead of a best-effort guess.
+ *
+ * The mapping is derived from each branch's own literal rather than hand-written, so a new branch cannot
+ * be added to a union and left out of the discriminator.
+ */
+export const applyOneOfDiscriminators = (
+  document: unknown,
+  specs: readonly DiscriminatorSpec[],
+): void => {
+  if (
+    !isRecord(document) ||
+    !isRecord(document.components) ||
+    !isRecord(document.components.schemas)
+  ) {
+    return;
+  }
+
+  const schemas = document.components.schemas;
+
+  for (const spec of specs) {
+    const schema = schemas[spec.schema];
+
+    if (!isRecord(schema)) {
+      continue;
+    }
+
+    const branches = schema.anyOf ?? schema.oneOf;
+
+    if (!Array.isArray(branches)) {
+      continue;
+    }
+
+    const mapping: Record<string, string> = {};
+
+    for (const branch of branches) {
+      if (!isRecord(branch) || typeof branch.$ref !== 'string') {
+        continue;
+      }
+
+      const name = branch.$ref.startsWith(SCHEMA_REF_PREFIX)
+        ? branch.$ref.slice(SCHEMA_REF_PREFIX.length)
+        : undefined;
+      const value =
+        name === undefined ? undefined : literalValueOf(schemas[name], spec.propertyName);
+
+      if (value !== undefined) {
+        mapping[value] = branch.$ref;
+      }
+    }
+
+    // Leave the union untouched unless every branch contributed, so an incomplete mapping surfaces as a
+    // failing contract test rather than as a discriminator that quietly omits a variant.
+    if (Object.keys(mapping).length !== branches.length) {
+      continue;
+    }
+
+    delete schema.anyOf;
+    schema.oneOf = branches;
+    schema.discriminator = { propertyName: spec.propertyName, mapping };
+  }
+};
+
+export interface NamedExample {
+  readonly summary?: string;
+  readonly description?: string;
+  readonly value: unknown;
+}
+
+export interface ResponseExampleSpec {
+  readonly path: string;
+  readonly method: (typeof HTTP_METHODS)[number];
+  readonly status: number;
+  readonly examples: Readonly<Record<string, NamedExample>>;
+}
+
+/**
+ * Attaches named examples to a response's media type.
+ *
+ * A schema-level `examples` array cannot label its entries, so it cannot express "this is the fresh
+ * response and that is the stale one", or which of three reasons a 404 shows. Named response examples
+ * can, and Swagger UI offers them in a picker.
+ *
+ * Runs after the Problem Details media type is corrected, so it writes to whichever media type the
+ * response really has.
+ */
+export const applyNamedResponseExamples = (
+  document: unknown,
+  specs: readonly ResponseExampleSpec[],
+): void => {
+  if (!isRecord(document) || !isRecord(document.paths)) {
+    return;
+  }
+
+  for (const spec of specs) {
+    const pathItem = document.paths[spec.path];
+
+    if (!isRecord(pathItem)) {
+      continue;
+    }
+
+    const operation = pathItem[spec.method];
+
+    if (!isRecord(operation) || !isRecord(operation.responses)) {
+      continue;
+    }
+
+    const response = operation.responses[String(spec.status)];
+
+    if (!isRecord(response) || !isRecord(response.content)) {
+      continue;
+    }
+
+    for (const media of Object.values(response.content)) {
+      if (isRecord(media)) {
+        media.examples = { ...spec.examples };
+      }
+    }
+  }
+};
+
+export const createDocumentTransform =
+  (
+    discriminators: readonly DiscriminatorSpec[],
+    responseExamples: readonly ResponseExampleSpec[],
+  ): SwaggerTransformObject =>
+  (documentObject) => {
+    const document = structuredClone(jsonSchemaTransformObject(documentObject));
+
+    resolveResponseDescriptions(document);
+    applyProblemDetailsMediaType(document);
+    applyOneOfDiscriminators(document, discriminators);
+    applyNamedResponseExamples(document, responseExamples);
+    pruneUnreferencedComponentSchemas(document);
+
+    return document;
+  };
 
 export const registerDocs = async (app: FastifyInstance): Promise<void> => {
   await app.register(fastifySwagger, {
@@ -277,7 +464,7 @@ export const registerDocs = async (app: FastifyInstance): Promise<void> => {
         title: 'AbfallRadar API',
         version: '0.1.0',
         description:
-          'Provider-neutral waste collection contract for the AbfallRadar browser extension, web application, and mobile application.\n\nThe `v1` path segment versions the public HTTP contract; operational endpoints stay unversioned. Expected failures use RFC 9457 Problem Details with the `application/problem+json` media type.\n\nOnly the demo provider is available today. Demo data is generated sample data and must never be presented as official municipal data.',
+          'Provider-neutral waste collection contract for the AbfallRadar browser extension, web application, and mobile application.\n\nThe `v1` path segment versions the public HTTP contract; operational endpoints stay unversioned. Expected failures use RFC 9457 Problem Details with the `application/problem+json` media type.\n\nOfficial collection schedules come from the responsible municipal operator and carry their source, retrieval time, validity window, freshness state, and declared waste-type coverage. A provider whose `sourceKind` is `demo` returns generated sample data, which must never be presented as official municipal data.\n\nEvent identifiers are opaque. Their readable prefix exists for operators; clients must not parse them.',
       },
       servers: [{ url: '/', description: 'The origin serving this document.' }],
       tags: [
@@ -289,10 +476,15 @@ export const registerDocs = async (app: FastifyInstance): Promise<void> => {
           name: 'Providers',
           description: 'The schedule provider catalogue and the service areas of each provider.',
         },
+        {
+          name: 'Schedules',
+          description:
+            'Official collection events for a service area, with the provenance and freshness of the source they came from.',
+        },
       ],
     },
     transform: createJsonSchemaTransform({ skipList: [...DOCS_SKIP_LIST] }),
-    transformObject: createDocumentTransform(),
+    transformObject: createDocumentTransform(DISCRIMINATORS, RESPONSE_EXAMPLES),
   });
 
   await app.register(fastifySwaggerUi, {

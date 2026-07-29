@@ -9,10 +9,10 @@ export const PROVIDER_ID_PATTERN = /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/;
 
 export const PROVIDER_ID_MAX_LENGTH = 64;
 
-export const ProviderSourceKindSchema = z.enum(['demo']).meta({
+export const ProviderSourceKindSchema = z.enum(['demo', 'official_ics']).meta({
   id: 'ProviderSourceKind',
   description:
-    'The kind of source a provider reads. `demo` is generated sample data and must never be presented as official municipal data.',
+    'The kind of source a provider reads. `official_ics` is the calendar the responsible municipal operator publishes. `demo` is generated sample data and must never be presented as official municipal data.',
 });
 
 export type ProviderSourceKind = z.infer<typeof ProviderSourceKindSchema>;

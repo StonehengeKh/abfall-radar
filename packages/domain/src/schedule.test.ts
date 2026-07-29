@@ -12,6 +12,8 @@ const createEvents = (): CollectionEvent[] => [
     date: '2026-08-14',
     title: 'Paper',
     source: 'demo',
+    collectionMode: 'curbside',
+    timing: { kind: 'all_day' },
   },
   {
     id: 'yellow-bag-tomorrow',
@@ -20,6 +22,26 @@ const createEvents = (): CollectionEvent[] => [
     date: '2026-07-24',
     title: 'Yellow bag',
     source: 'demo',
+    collectionMode: 'curbside',
+    timing: { kind: 'all_day' },
+  },
+  // A timed mobile drop-off sits in the same list, so the schedule rules are exercised against both
+  // variants rather than only the all-day one.
+  {
+    id: 'hazardous-mobile',
+    districtId: 'district',
+    type: 'hazardous',
+    date: '2026-07-25',
+    title: 'Hazardous',
+    source: 'municipal_ics',
+    collectionMode: 'mobile_drop_off',
+    timing: {
+      kind: 'time_window',
+      startsAt: '2026-07-25T08:00:00Z',
+      endsAt: '2026-07-25T10:00:00Z',
+      timeZone: 'Europe/Berlin',
+    },
+    location: { name: 'Rizzastraße Ecke Südallee' },
   },
 ];
 

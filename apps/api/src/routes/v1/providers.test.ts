@@ -19,12 +19,38 @@ describe('provider catalogue routes', () => {
   });
 
   describe('GET /api/v1/providers', () => {
-    it('returns the explicitly labelled demo provider', async () => {
+    it('lists the official provider and still lists the demo provider, each explicitly labelled', async () => {
       const response = await app.inject({ method: 'GET', url: '/api/v1/providers' });
 
       expect(response.statusCode).toBe(200);
       expect(response.json()).toEqual({
-        data: [{ id: 'demo', name: 'Demo provider', sourceKind: 'demo' }],
+        data: [
+          { id: 'demo', name: 'Demo provider', sourceKind: 'demo' },
+          {
+            id: 'koblenz-servicebetrieb',
+            name: 'Kommunaler Servicebetrieb',
+            sourceKind: 'official_ics',
+          },
+        ],
+      });
+    });
+
+    it('returns the verified official service area with official naming', async () => {
+      const response = await app.inject({
+        method: 'GET',
+        url: '/api/v1/providers/koblenz-servicebetrieb/service-areas',
+      });
+
+      expect(response.statusCode).toBe(200);
+      expect(response.json()).toEqual({
+        data: [
+          {
+            id: 'koblenz-stadtmitte',
+            providerId: 'koblenz-servicebetrieb',
+            locality: 'Koblenz',
+            name: 'Stadtmitte',
+          },
+        ],
       });
     });
 

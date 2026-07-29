@@ -17,7 +17,7 @@ import {
 } from './providers.schemas';
 
 const DEMO_DATA_NOTICE =
-  'Only the demo provider is available. Demo data is generated sample data and must never be presented as official municipal data.';
+  'A provider whose `sourceKind` is `demo` returns generated sample data, which must never be presented as official municipal data.';
 
 export const providerRoutes: FastifyPluginAsyncZod = async (app) => {
   app.get(
@@ -34,7 +34,7 @@ export const providerRoutes: FastifyPluginAsyncZod = async (app) => {
         },
       },
     },
-    async () => ({ data: listProviders() }),
+    async () => ({ data: listProviders(app.providerCatalogue) }),
   );
 
   app.get(
@@ -55,7 +55,7 @@ export const providerRoutes: FastifyPluginAsyncZod = async (app) => {
       },
     },
     async (request) => {
-      const entry = findProviderEntry(request.params.providerId);
+      const entry = findProviderEntry(app.providerCatalogue, request.params.providerId);
 
       if (entry === undefined) {
         throw ApiProblem.providerNotFound();

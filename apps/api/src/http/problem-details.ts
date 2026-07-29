@@ -1,3 +1,4 @@
+import { type SourceFailureError, isSourceFailureError } from '@abfall-radar/data-providers';
 import { z } from 'zod';
 
 /**
@@ -10,8 +11,13 @@ export const PROBLEM_CODES = [
   'VALIDATION_ERROR',
   'REQUEST_ERROR',
   'PROVIDER_NOT_FOUND',
+  'SERVICE_AREA_NOT_FOUND',
+  'COLLECTION_EVENTS_NOT_AVAILABLE',
+  'SCHEDULE_RANGE_NOT_COVERED',
   'ROUTE_NOT_FOUND',
   'INTERNAL_SERVER_ERROR',
+  'UPSTREAM_SOURCE_INVALID',
+  'UPSTREAM_SOURCE_UNAVAILABLE',
 ] as const;
 
 export type ProblemCode = (typeof PROBLEM_CODES)[number];
@@ -46,6 +52,25 @@ export const problemCatalogue: Record<ProblemCode, ProblemDefinition> = {
     status: 404,
     detail: 'No schedule provider exists for the supplied identifier.',
   },
+  SERVICE_AREA_NOT_FOUND: {
+    type: `${PROBLEM_TYPE_PREFIX}service-area-not-found`,
+    title: 'Service area not found',
+    status: 404,
+    detail: 'The selected provider does not serve a service area with the supplied identifier.',
+  },
+  COLLECTION_EVENTS_NOT_AVAILABLE: {
+    type: `${PROBLEM_TYPE_PREFIX}collection-events-not-available`,
+    title: 'Collection events not available',
+    status: 404,
+    detail:
+      'The selected provider does not publish official collection events for this service area.',
+  },
+  SCHEDULE_RANGE_NOT_COVERED: {
+    type: `${PROBLEM_TYPE_PREFIX}schedule-range-not-covered`,
+    title: 'Requested range not covered',
+    status: 422,
+    detail: 'The requested date range is not covered by the validity window the source declares.',
+  },
   ROUTE_NOT_FOUND: {
     type: `${PROBLEM_TYPE_PREFIX}route-not-found`,
     title: 'Route not found',
@@ -57,6 +82,19 @@ export const problemCatalogue: Record<ProblemCode, ProblemDefinition> = {
     title: 'Internal server error',
     status: 500,
     detail: 'The request could not be completed because of an unexpected server error.',
+  },
+  UPSTREAM_SOURCE_INVALID: {
+    type: `${PROBLEM_TYPE_PREFIX}upstream-source-invalid`,
+    title: 'Official source unusable',
+    status: 502,
+    detail:
+      'The official source was retrieved but could not be used, and no valid schedule is available.',
+  },
+  UPSTREAM_SOURCE_UNAVAILABLE: {
+    type: `${PROBLEM_TYPE_PREFIX}upstream-source-unavailable`,
+    title: 'Official source unavailable',
+    status: 503,
+    detail: 'The official source could not be retrieved and no valid schedule is available.',
   },
 };
 
@@ -81,17 +119,18 @@ export const ValidationIssueSchema = z
 
 export type ValidationIssue = z.infer<typeof ValidationIssueSchema>;
 
+const problemShape = {
+  type: z.string(),
+  title: z.string(),
+  status: z.number().int(),
+  detail: z.string(),
+  instance: z.string(),
+  requestId: z.string(),
+  errors: z.array(ValidationIssueSchema).optional(),
+};
+
 export const ProblemDetailsSchema = z
-  .object({
-    type: z.string(),
-    title: z.string(),
-    status: z.number().int(),
-    detail: z.string(),
-    instance: z.string(),
-    code: z.enum(PROBLEM_CODES),
-    requestId: z.string(),
-    errors: z.array(ValidationIssueSchema).optional(),
-  })
+  .object({ ...problemShape, code: z.enum(PROBLEM_CODES) })
   .meta({
     id: 'ProblemDetails',
     description:
@@ -111,45 +150,120 @@ export const ProblemDetailsSchema = z
 
 export type ProblemDetails = z.infer<typeof ProblemDetailsSchema>;
 
-export const ValidationProblemSchema = ProblemDetailsSchema.meta({
+interface CodedProblemOptions {
+  readonly id: string;
+  readonly description: string;
+  readonly instance: string;
+  readonly errors?: readonly ValidationIssue[];
+}
+
+/**
+ * Builds a per-code problem schema whose `code` is a literal rather than the whole enum.
+ *
+ * The literal is what lets several 404 variants be published as a discriminable `oneOf`, and it also
+ * documents a single-code response more precisely. The example is derived from the catalogue, so a
+ * change to a `detail`, `title`, or `status` cannot leave the published example behind.
+ */
+const codedProblem = <Code extends ProblemCode>(code: Code, options: CodedProblemOptions) => {
+  const definition = problemCatalogue[code];
+
+  return z.object({ ...problemShape, code: z.literal(code) }).meta({
+    id: options.id,
+    description: options.description,
+    examples: [
+      {
+        type: definition.type,
+        title: definition.title,
+        status: definition.status,
+        detail: definition.detail,
+        instance: options.instance,
+        code,
+        requestId: 'req-1',
+        ...(options.errors === undefined ? {} : { errors: [...options.errors] }),
+      },
+    ],
+  });
+};
+
+const COLLECTION_EVENTS_INSTANCE =
+  '/api/v1/providers/koblenz-servicebetrieb/service-areas/koblenz-stadtmitte/collection-events?from=2026-03-01&to=2026-03-31';
+
+export const ValidationProblemSchema = codedProblem('VALIDATION_ERROR', {
   id: 'ValidationProblem',
   description:
     'The request did not satisfy the documented request schema. `errors` lists the rejected fields with stable paths and machine-readable codes.',
-  examples: [
+  instance: '/api/v1/providers/Invalid_ID/service-areas',
+  errors: [
     {
-      type: `${PROBLEM_TYPE_PREFIX}validation-error`,
-      title: 'Invalid request',
-      status: 400,
-      detail: problemCatalogue.VALIDATION_ERROR.detail,
-      instance: '/api/v1/providers/Invalid_ID/service-areas',
-      code: 'VALIDATION_ERROR',
-      requestId: 'req-1',
-      errors: [
-        {
-          path: '/providerId',
-          code: 'invalid_format',
-          message: 'Invalid string: must match pattern /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/',
-        },
-      ],
+      path: '/providerId',
+      code: 'invalid_format',
+      message: 'Invalid string: must match pattern /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/',
     },
   ],
 });
 
-export const ProviderNotFoundProblemSchema = ProblemDetailsSchema.meta({
+export const ProviderNotFoundProblemSchema = codedProblem('PROVIDER_NOT_FOUND', {
   id: 'ProviderNotFoundProblem',
   description:
     'The supplied provider identifier is well formed but no provider is registered for it.',
-  examples: [
-    {
-      type: `${PROBLEM_TYPE_PREFIX}provider-not-found`,
-      title: 'Provider not found',
-      status: 404,
-      detail: problemCatalogue.PROVIDER_NOT_FOUND.detail,
-      instance: '/api/v1/providers/unknown/service-areas',
-      code: 'PROVIDER_NOT_FOUND',
-      requestId: 'req-1',
-    },
-  ],
+  instance: '/api/v1/providers/unknown/service-areas',
+});
+
+export const ServiceAreaNotFoundProblemSchema = codedProblem('SERVICE_AREA_NOT_FOUND', {
+  id: 'ServiceAreaNotFoundProblem',
+  description:
+    'The provider exists and the service-area identifier is well formed, but that provider does not serve it.',
+  instance:
+    '/api/v1/providers/koblenz-servicebetrieb/service-areas/unknown-area/collection-events?from=2026-03-01&to=2026-03-31',
+});
+
+export const CollectionEventsNotAvailableProblemSchema = codedProblem(
+  'COLLECTION_EVENTS_NOT_AVAILABLE',
+  {
+    id: 'CollectionEventsNotAvailableProblem',
+    description:
+      'The provider and the service area both exist, but this provider publishes no official collection calendar for that area. The demo provider never publishes one.',
+    instance:
+      '/api/v1/providers/demo/service-areas/koblenz-stadtmitte/collection-events?from=2026-03-01&to=2026-03-31',
+  },
+);
+
+/**
+ * One 404 response carrying every reason the resource can be absent. An OpenAPI operation permits a
+ * single entry per status code, so three separately registered 404 schemas would overwrite each other.
+ */
+export const CollectionEventsNotFoundProblemSchema = z
+  .discriminatedUnion('code', [
+    ProviderNotFoundProblemSchema,
+    ServiceAreaNotFoundProblemSchema,
+    CollectionEventsNotAvailableProblemSchema,
+  ])
+  .meta({
+    id: 'CollectionEventsNotFoundProblem',
+    description:
+      'The requested collection-events resource does not exist. `code` states which part was not found: the provider, the service area, or an official calendar for that area.',
+  });
+
+export const ScheduleRangeNotCoveredProblemSchema = codedProblem('SCHEDULE_RANGE_NOT_COVERED', {
+  id: 'ScheduleRangeNotCoveredProblem',
+  description:
+    'The requested range is not fully inside the validity window the source declares. Decided from that declared window alone, never from an empty result: a covered range that happens to contain no collection returns an empty list instead.',
+  instance:
+    '/api/v1/providers/koblenz-servicebetrieb/service-areas/koblenz-stadtmitte/collection-events?from=2025-01-01&to=2025-12-31',
+});
+
+export const UpstreamSourceInvalidProblemSchema = codedProblem('UPSTREAM_SOURCE_INVALID', {
+  id: 'UpstreamSourceInvalidProblem',
+  description:
+    'The official source was reached but is unusable — an unexpected content type, an oversized body, a parse failure, a calendar zone that is missing, duplicated, malformed, or not the expected one, an unmapped event summary, or an entry that cannot produce a valid event — and no valid cached schedule exists. Where a valid cached schedule does exist, a stale `200` is returned instead.',
+  instance: COLLECTION_EVENTS_INSTANCE,
+});
+
+export const UpstreamSourceUnavailableProblemSchema = codedProblem('UPSTREAM_SOURCE_UNAVAILABLE', {
+  id: 'UpstreamSourceUnavailableProblem',
+  description:
+    'The official source could not be retrieved — the retrieval deadline elapsed, a connection error, a non-success status, a redirect leaving the approved origin, too many redirect hops, or a redirect loop — and no valid cached schedule exists. Where a valid cached schedule does exist, a stale `200` is returned instead.',
+  instance: COLLECTION_EVENTS_INSTANCE,
 });
 
 export interface ApiProblemOptions {
@@ -176,6 +290,33 @@ export class ApiProblem extends Error {
 
   static providerNotFound(): ApiProblem {
     return new ApiProblem('PROVIDER_NOT_FOUND');
+  }
+
+  static serviceAreaNotFound(): ApiProblem {
+    return new ApiProblem('SERVICE_AREA_NOT_FOUND');
+  }
+
+  static collectionEventsNotAvailable(): ApiProblem {
+    return new ApiProblem('COLLECTION_EVENTS_NOT_AVAILABLE');
+  }
+
+  static scheduleRangeNotCovered(): ApiProblem {
+    return new ApiProblem('SCHEDULE_RANGE_NOT_COVERED');
+  }
+
+  /**
+   * Translates a provider failure into its documented status. The provider decides whether a source was
+   * unusable or unreachable; this only maps that decision onto the contract, and carries across no
+   * upstream message, payload, or URL.
+   */
+  static fromSourceFailure(error: SourceFailureError): ApiProblem {
+    return new ApiProblem(
+      error.kind === 'invalid' ? 'UPSTREAM_SOURCE_INVALID' : 'UPSTREAM_SOURCE_UNAVAILABLE',
+    );
+  }
+
+  static fromUnknown(error: unknown): ApiProblem | undefined {
+    return isSourceFailureError(error) ? ApiProblem.fromSourceFailure(error) : undefined;
   }
 }
 
@@ -207,3 +348,42 @@ export const buildProblem = ({
     ...(errors === undefined ? {} : { errors: [...errors] }),
   };
 };
+
+const AREA_PATH = '/api/v1/providers/koblenz-servicebetrieb/service-areas';
+
+const RANGE_QUERY = 'collection-events?from=2026-03-01&to=2026-03-31';
+
+/**
+ * The three reasons the collection-events resource can be absent, published as named examples on its
+ * single 404 response. Built from the catalogue so they cannot drift from what the API really returns.
+ */
+export const COLLECTION_EVENTS_NOT_FOUND_EXAMPLES = {
+  providerNotFound: {
+    summary: 'Unknown provider',
+    description: 'The provider identifier is well formed but no provider is registered for it.',
+    value: buildProblem({
+      code: 'PROVIDER_NOT_FOUND',
+      instance: `/api/v1/providers/unknown/service-areas/koblenz-stadtmitte/${RANGE_QUERY}`,
+      requestId: 'req-1',
+    }),
+  },
+  serviceAreaNotFound: {
+    summary: 'Unknown service area',
+    description: 'The provider exists but does not serve a service area with that identifier.',
+    value: buildProblem({
+      code: 'SERVICE_AREA_NOT_FOUND',
+      instance: `${AREA_PATH}/unknown-area/${RANGE_QUERY}`,
+      requestId: 'req-1',
+    }),
+  },
+  collectionEventsNotAvailable: {
+    summary: 'No official calendar for this area',
+    description:
+      'The provider and the area both exist, but this provider publishes no official calendar for it. The demo provider never publishes one.',
+    value: buildProblem({
+      code: 'COLLECTION_EVENTS_NOT_AVAILABLE',
+      instance: `/api/v1/providers/demo/service-areas/koblenz-stadtmitte/${RANGE_QUERY}`,
+      requestId: 'req-1',
+    }),
+  },
+} as const;
