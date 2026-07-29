@@ -167,6 +167,50 @@ Human-readable `detail` text is diagnostic API copy, not localized product UI co
 - [ ] Root and API documentation explain how to run the API and inspect its contract.
 - [ ] `pnpm check` passes.
 
+## Approved implementation clarifications
+
+- Date: 2026-07-28
+- Approved by: repository owner
+- Scope: task-level implementation detail only. ADR 0002 is unchanged.
+
+### Production build
+
+The API is bundled with esbuild used directly; no wrapper bundler is introduced.
+
+- `esbuild` 0.28.1 is added to the root pnpm catalog and to `apps/api` development dependencies.
+- The build is a typed script, `apps/api/scripts/build.ts`, executed with the already approved
+  `tsx`.
+- It bundles `src/server.ts` into `dist/server.js` with `bundle: true`, `platform: 'node'`,
+  `format: 'esm'`, `target: 'node24'`, source maps enabled, and no minification, cleaning `dist`
+  first.
+- `tsc --noEmit` remains the independent type-checking step.
+- `@abfall-radar/*` workspace packages and their implementation dependencies, such as `date-fns`,
+  are bundled so the artifact never depends on a runtime package `apps/api` does not declare.
+- Only the third-party runtime packages declared directly by `apps/api` are externalized: `fastify`,
+  `zod`, `@fastify/type-provider-zod`, `@fastify/swagger`, and `@fastify/swagger-ui`.
+- Shared package `exports` maps are not changed and `date-fns` is not added to `apps/api`.
+- The start script runs Node with source-map support enabled.
+
+### Additional approved dependency
+
+`openapi-types` 12.1.3 is added to the root pnpm catalog and to `apps/api` development dependencies.
+It is a type-only required peer dependency of `@fastify/type-provider-zod`. It is declared
+explicitly so `strict-peer-dependencies` stays enabled and no peer is auto-installed.
+
+### Demo service-area example values
+
+The illustrative service-area payload in this task is replaced by the values the existing demo
+provider actually returns, which are also the OpenAPI examples:
+
+- `id`: `koblenz-stadtmitte`
+- `locality`: `Koblenz`
+- `name`: `Stadtmitte`
+
+### Excluded from this task
+
+The browser extension's default `districtId` is not changed and no persisted-settings migration is
+introduced.
+
 ## Verification
 
 Automated:
