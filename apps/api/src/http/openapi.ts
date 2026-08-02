@@ -13,6 +13,7 @@ export const COLLECTION_EVENTS_PATH =
 const DISCRIMINATORS: readonly DiscriminatorSpec[] = [
   { schema: 'CollectionEvent', propertyName: 'collectionMode' },
   { schema: 'CollectionEventsNotFoundProblem', propertyName: 'code' },
+  { schema: 'ServiceAreaCollectionEvents', propertyName: 'availability' },
 ];
 
 const RESPONSE_EXAMPLES: readonly ResponseExampleSpec[] = [

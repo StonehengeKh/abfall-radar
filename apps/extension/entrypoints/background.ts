@@ -1,65 +1,34 @@
-import { demoScheduleProvider } from '@abfall-radar/data-providers';
-import { findReminderEvent, wasteLabels } from '@abfall-radar/domain';
-import {
-  type AppSettings,
-  appSettingsItem,
-  getSettings,
-  lastReminderItem,
-  resolveSettings,
-} from '@/src/storage/settings';
+import { createApiClient } from '@abfall-radar/api-client';
+import { createGateway } from '@/src/background/gateway';
+import { REMINDER_ALARM, scheduleNextReminder, showReminder } from '@/src/background/reminder';
+import { API_ORIGIN } from '@/src/config/api';
+import { watchSettings } from '@/src/storage/settings-repository';
 
-const REMINDER_ALARM = 'abfall-radar-reminder';
-
-const getNextReminderTimestamp = (time: string, referenceDate = new Date()): number => {
-  const [hour = 18, minute = 0] = time.split(':').map(Number);
-  const nextReminder = new Date(referenceDate);
-  nextReminder.setHours(hour, minute, 0, 0);
-
-  if (nextReminder.getTime() <= referenceDate.getTime()) {
-    nextReminder.setDate(nextReminder.getDate() + 1);
-  }
-
-  return nextReminder.getTime();
-};
-
-const scheduleNextReminder = async (settings?: AppSettings): Promise<void> => {
-  const currentSettings = settings ? resolveSettings(settings) : await getSettings();
-  await browser.alarms.clear(REMINDER_ALARM);
-
-  if (!currentSettings.remindersEnabled) {
-    return;
-  }
-
-  await browser.alarms.create(REMINDER_ALARM, {
-    when: getNextReminderTimestamp(currentSettings.reminderTime),
-  });
-};
-
-const showReminder = async (): Promise<void> => {
-  const settings = await getSettings();
-  const schedule = await demoScheduleProvider.getSchedule(settings.districtId);
-  const event = findReminderEvent(schedule, settings.reminderDaysBefore);
-
-  if (!event || !settings.visibleWasteTypes.includes(event.type)) {
-    return;
-  }
-
-  const reminderKey = `${event.id}:${event.date}`;
-  if ((await lastReminderItem.getValue()) === reminderKey) {
-    return;
-  }
-
-  await browser.notifications.create(reminderKey, {
-    type: 'basic',
-    iconUrl: browser.runtime.getURL('/icons/128.png'),
-    title: `Morgen: ${wasteLabels[event.type]}`,
-    message: 'Heute Abend bereitstellen, damit morgen nichts vergessen wird.',
-  });
-
-  await lastReminderItem.setValue(reminderKey);
-};
-
+/**
+ * The background service worker: the only place in the extension that constructs an HTTP request.
+ *
+ * Manifest V3 has one place where a network boundary belongs. The worker owns lifecycle, storage, and
+ * alarms; a popup is a short-lived window that can be closed mid-request, so a request in flight when it
+ * closes would have nowhere to deliver a validated response and the cache would never be written by
+ * exactly the requests most likely to matter.
+ */
 export default defineBackground(() => {
+  const gateway = createGateway({
+    client: createApiClient({ baseUrl: API_ORIGIN }),
+  });
+
+  browser.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+    // `sendResponse` plus `return true` is the selected compatibility baseline for the Chrome versions this
+    // project supports, not a claim about what Chrome will support later: a promise-returning listener is a
+    // viable alternative the moment that baseline makes it uniformly available.
+    //
+    // The handler never rejects, so `sendResponse` is always called exactly once. A dropped reply would
+    // leave the popup waiting on something that never arrives.
+    void gateway.handle(message).then(sendResponse);
+
+    return true;
+  });
+
   browser.runtime.onInstalled.addListener(() => {
     void scheduleNextReminder();
   });
@@ -73,10 +42,12 @@ export default defineBackground(() => {
       return;
     }
 
-    void showReminder().finally(() => scheduleNextReminder());
+    void showReminder({ gateway }).finally(() => scheduleNextReminder());
   });
 
-  appSettingsItem.watch((settings) => {
+  // Migrated settings only: the raw stored object is never read here, because a second raw reader is how a
+  // half-migrated value reaches a product surface.
+  watchSettings((settings) => {
     void scheduleNextReminder(settings);
   });
 });

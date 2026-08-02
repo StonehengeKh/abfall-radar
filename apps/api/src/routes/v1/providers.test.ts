@@ -7,6 +7,10 @@ import { buildTestApp } from '../../test/build-test-app';
 
 const SERVICE_AREAS_URL = '/api/v1/providers/demo/service-areas';
 
+const OFFICIAL_SERVICE_AREAS_URL = '/api/v1/providers/koblenz-servicebetrieb/service-areas';
+
+const UNAVAILABLE = { availability: 'unavailable' } as const;
+
 describe('provider catalogue routes', () => {
   let app: ApiApp;
 
@@ -36,10 +40,7 @@ describe('provider catalogue routes', () => {
     });
 
     it('returns the verified official service area with official naming', async () => {
-      const response = await app.inject({
-        method: 'GET',
-        url: '/api/v1/providers/koblenz-servicebetrieb/service-areas',
-      });
+      const response = await app.inject({ method: 'GET', url: OFFICIAL_SERVICE_AREAS_URL });
 
       expect(response.statusCode).toBe(200);
       expect(response.json()).toEqual({
@@ -49,6 +50,11 @@ describe('provider catalogue routes', () => {
             providerId: 'koblenz-servicebetrieb',
             locality: 'Koblenz',
             name: 'Stadtmitte',
+            collectionEvents: {
+              availability: 'available',
+              timeZone: 'Europe/Berlin',
+              validity: { from: '2026-01-01', to: '2026-12-31' },
+            },
           },
         ],
       });
@@ -69,7 +75,9 @@ describe('provider catalogue routes', () => {
       const response = await app.inject({ method: 'GET', url: SERVICE_AREAS_URL });
 
       expect(response.statusCode).toBe(200);
-      expect(response.json()).toEqual({ data: demoDistricts.map(toServiceArea) });
+      expect(response.json()).toEqual({
+        data: demoDistricts.map((district) => toServiceArea(district, UNAVAILABLE)),
+      });
     });
 
     it('maps the domain district city onto locality', async () => {
@@ -81,16 +89,47 @@ describe('provider catalogue routes', () => {
         providerId: 'demo',
         locality: 'Koblenz',
         name: 'Stadtmitte',
+        collectionEvents: UNAVAILABLE,
       });
 
       for (const serviceArea of data) {
         expect(Object.keys(serviceArea).toSorted()).toEqual([
+          'collectionEvents',
           'id',
           'locality',
           'name',
           'providerId',
         ]);
       }
+    });
+
+    it('reports every demo area as publishing no official calendar, with no invented zone or window', async () => {
+      const response = await app.inject({ method: 'GET', url: SERVICE_AREAS_URL });
+      const { data } = response.json<{
+        data: { collectionEvents: Record<string, unknown> }[];
+      }>();
+
+      expect(data).toHaveLength(demoDistricts.length);
+
+      for (const { collectionEvents } of data) {
+        // Asserted on the serialized key set, so a zone or window would fail the test rather than being
+        // an unnoticed extra member.
+        expect(Object.keys(collectionEvents)).toEqual(['availability']);
+        expect(collectionEvents.availability).toBe('unavailable');
+      }
+    });
+
+    it('serializes no undocumented field on the capability of the official area', async () => {
+      const response = await app.inject({ method: 'GET', url: OFFICIAL_SERVICE_AREAS_URL });
+      const { data } = response.json<{
+        data: { collectionEvents: Record<string, unknown> }[];
+      }>();
+      const capability = data[0]?.collectionEvents ?? {};
+
+      expect(Object.keys(capability).toSorted()).toEqual(['availability', 'timeZone', 'validity']);
+      expect(
+        Object.keys((capability.validity ?? {}) as Record<string, unknown>).toSorted(),
+      ).toEqual(['from', 'to']);
     });
 
     it.each([

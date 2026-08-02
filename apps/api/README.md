@@ -71,6 +71,29 @@ transport constraint returns `400`; a well formed but unregistered identifier re
 `service area` is the location-neutral transport term for the domain `District` model. The domain
 model keeps its own name; renaming it is a separate contract-change task.
 
+### Service areas
+
+Every service area states whether its provider publishes an official collection calendar for it, as a
+`oneOf` discriminated on `availability` rather than as nullable date fields:
+
+| `availability` | Other members | Meaning |
+| --- | --- | --- |
+| `available` | `timeZone`, `validity.from`, `validity.to` | The source publishes a calendar. |
+| `unavailable` | none | This provider publishes no calendar for the area. |
+
+A capability union is used so that "this provider publishes no official calendar for this area" cannot be
+confused with "a value is missing". `available` carries the source manifest's zone and declared validity
+window, which is what lets a client construct a correct collection-events range **before** asking for one:
+the window used to be visible only on a collection-events response, which is the request it is needed to
+build.
+
+`unavailable` carries nothing else. Every demo area reports it, with no invented zone and no invented
+window — an invented value is indistinguishable from a verified one to everything that reads it.
+
+`availability: 'unavailable'` is a statement about the source, not about whether the area exists or is
+served. A client should keep such an area visible and explain it rather than hide it, because hiding it
+would imply the municipality does not serve the area.
+
 ### Collection events
 
 `from` and `to` are required ISO calendar dates. `from` must not be after `to`, and the inclusive range
@@ -123,6 +146,35 @@ With documentation enabled:
 The OpenAPI document is generated from the runtime route schemas and is the only source of truth. Do
 not maintain a specification by hand. Set `API_DOCS_ENABLED=false` to disable both endpoints without
 changing route code; they then return a Problem Details `404` like any other unknown route.
+
+### Generated contract artifacts
+
+Two artifacts are generated from the route schemas and committed:
+
+| Artifact | Consumed by |
+| --- | --- |
+| `apps/api/openapi.json` | The machine-readable contract |
+| `packages/api-client/src/generated/api.ts` | `@abfall-radar/api-client`'s transport types |
+
+```bash
+pnpm --filter @abfall-radar/api generate:contract
+```
+
+`apps/api` owns this because it owns the contract: one command builds the application **in process**,
+writes the document, and re-emits the generated module from those exact bytes. Nothing listens on a port
+and no running development server is required. The dev-time coupling therefore points from an application
+to a package, which
+[the dependency direction](../../docs/architecture/repository-structure.md) allows; a script inside the
+package reaching into `apps/api` would point the other way.
+
+**Neither artifact may be edited by hand.** `src/contract/contract-artifacts.test.ts` regenerates both in
+memory and compares them byte-for-byte, so a stale or edited artifact fails `pnpm check` rather than
+reaching a client. Both are excluded from Biome so formatting cannot fight the generator, and both are
+still typechecked.
+
+`src/contract/client-contract.test.ts` additionally parses real injected responses through the client's
+hand-written runtime validators, which closes the gap the type-level check cannot: it proves the
+validators accept what this application really serializes.
 
 ## Error contract
 
@@ -212,6 +264,7 @@ src/
   server.ts                  Process entrypoint: configuration, listen, graceful shutdown
   config/env.ts              Startup configuration validation
   http/problem-details.ts    RFC 9457 schemas, problem catalogue, ApiProblem
+  contract/                  In-memory generation of the committed contract artifacts, and their drift test
   http/error-handler.ts      The single centralized error boundary
   http/openapi.ts            OpenAPI generation and Swagger UI registration
   providers/                 Provider catalogue and District -> ServiceArea adaptation
@@ -247,12 +300,19 @@ pnpm --filter @abfall-radar/api build
 pnpm check
 ```
 
+After changing a route schema, regenerate the committed contract artifacts and commit the result:
+
+```bash
+pnpm --filter @abfall-radar/api generate:contract
+```
+
 Manual checks with the server running:
 
 ```bash
 curl --fail-with-body http://localhost:3000/health
 curl --fail-with-body http://localhost:3000/api/v1/providers
-curl --fail-with-body http://localhost:3000/api/v1/providers/demo/service-areas
+curl --fail-with-body http://localhost:3000/api/v1/providers/demo/service-areas          # all unavailable
+curl --fail-with-body http://localhost:3000/api/v1/providers/koblenz-servicebetrieb/service-areas
 curl --include http://localhost:3000/api/v1/providers/unknown/service-areas
 curl --include http://localhost:3000/api/v1/providers/Invalid_ID/service-areas
 curl --include http://localhost:3000/nope

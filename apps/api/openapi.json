@@ -1,0 +1,1919 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "AbfallRadar API",
+    "version": "0.1.0",
+    "description": "Provider-neutral waste collection contract for the AbfallRadar browser extension, web application, and mobile application.\n\nThe `v1` path segment versions the public HTTP contract; operational endpoints stay unversioned. Expected failures use RFC 9457 Problem Details with the `application/problem+json` media type.\n\nOfficial collection schedules come from the responsible municipal operator and carry their source, retrieval time, validity window, freshness state, and declared waste-type coverage. A provider whose `sourceKind` is `demo` returns generated sample data, which must never be presented as official municipal data.\n\nEvent identifiers are opaque. Their readable prefix exists for operators; clients must not parse them."
+  },
+  "components": {
+    "schemas": {
+      "ValidationIssue": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string"
+          },
+          "code": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "path",
+          "code",
+          "message"
+        ],
+        "additionalProperties": false,
+        "description": "A single field-level validation failure. `path` is a JSON Pointer into the rejected request part and `code` is a stable machine-readable reason.",
+        "examples": [
+          {
+            "path": "/providerId",
+            "code": "invalid_format",
+            "message": "Invalid string: must match pattern /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/"
+          }
+        ]
+      },
+      "ProblemDetails": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "status": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "detail": {
+            "type": "string"
+          },
+          "instance": {
+            "type": "string"
+          },
+          "requestId": {
+            "type": "string"
+          },
+          "errors": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ValidationIssue"
+            }
+          },
+          "code": {
+            "type": "string",
+            "enum": [
+              "VALIDATION_ERROR",
+              "REQUEST_ERROR",
+              "PROVIDER_NOT_FOUND",
+              "SERVICE_AREA_NOT_FOUND",
+              "COLLECTION_EVENTS_NOT_AVAILABLE",
+              "SCHEDULE_RANGE_NOT_COVERED",
+              "ROUTE_NOT_FOUND",
+              "INTERNAL_SERVER_ERROR",
+              "UPSTREAM_SOURCE_INVALID",
+              "UPSTREAM_SOURCE_UNAVAILABLE"
+            ]
+          }
+        },
+        "required": [
+          "type",
+          "title",
+          "status",
+          "detail",
+          "instance",
+          "requestId",
+          "code"
+        ],
+        "additionalProperties": false,
+        "description": "An unexpected server error occurred. The response follows RFC 9457 and never contains stack traces, upstream payloads, or infrastructure details. Correlate `requestId` with the server logs.",
+        "examples": [
+          {
+            "type": "urn:abfall-radar:problem:internal-server-error",
+            "title": "Internal server error",
+            "status": 500,
+            "detail": "The request could not be completed because of an unexpected server error.",
+            "instance": "/api/v1/providers",
+            "code": "INTERNAL_SERVER_ERROR",
+            "requestId": "req-1"
+          }
+        ]
+      },
+      "ValidationProblem": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "status": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "detail": {
+            "type": "string"
+          },
+          "instance": {
+            "type": "string"
+          },
+          "requestId": {
+            "type": "string"
+          },
+          "errors": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ValidationIssue"
+            }
+          },
+          "code": {
+            "type": "string",
+            "const": "VALIDATION_ERROR"
+          }
+        },
+        "required": [
+          "type",
+          "title",
+          "status",
+          "detail",
+          "instance",
+          "requestId",
+          "code"
+        ],
+        "additionalProperties": false,
+        "description": "The request did not satisfy the documented request schema. `errors` lists the rejected fields with stable paths and machine-readable codes.",
+        "examples": [
+          {
+            "type": "urn:abfall-radar:problem:validation-error",
+            "title": "Invalid request",
+            "status": 400,
+            "detail": "The request did not match the documented contract.",
+            "instance": "/api/v1/providers/Invalid_ID/service-areas",
+            "code": "VALIDATION_ERROR",
+            "requestId": "req-1",
+            "errors": [
+              {
+                "path": "/providerId",
+                "code": "invalid_format",
+                "message": "Invalid string: must match pattern /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/"
+              }
+            ]
+          }
+        ]
+      },
+      "ProviderNotFoundProblem": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "status": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "detail": {
+            "type": "string"
+          },
+          "instance": {
+            "type": "string"
+          },
+          "requestId": {
+            "type": "string"
+          },
+          "errors": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ValidationIssue"
+            }
+          },
+          "code": {
+            "type": "string",
+            "const": "PROVIDER_NOT_FOUND"
+          }
+        },
+        "required": [
+          "type",
+          "title",
+          "status",
+          "detail",
+          "instance",
+          "requestId",
+          "code"
+        ],
+        "additionalProperties": false,
+        "description": "The supplied provider identifier is well formed but no provider is registered for it.",
+        "examples": [
+          {
+            "type": "urn:abfall-radar:problem:provider-not-found",
+            "title": "Provider not found",
+            "status": 404,
+            "detail": "No schedule provider exists for the supplied identifier.",
+            "instance": "/api/v1/providers/unknown/service-areas",
+            "code": "PROVIDER_NOT_FOUND",
+            "requestId": "req-1"
+          }
+        ]
+      },
+      "ServiceAreaNotFoundProblem": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "status": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "detail": {
+            "type": "string"
+          },
+          "instance": {
+            "type": "string"
+          },
+          "requestId": {
+            "type": "string"
+          },
+          "errors": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ValidationIssue"
+            }
+          },
+          "code": {
+            "type": "string",
+            "const": "SERVICE_AREA_NOT_FOUND"
+          }
+        },
+        "required": [
+          "type",
+          "title",
+          "status",
+          "detail",
+          "instance",
+          "requestId",
+          "code"
+        ],
+        "additionalProperties": false,
+        "description": "The provider exists and the service-area identifier is well formed, but that provider does not serve it.",
+        "examples": [
+          {
+            "type": "urn:abfall-radar:problem:service-area-not-found",
+            "title": "Service area not found",
+            "status": 404,
+            "detail": "The selected provider does not serve a service area with the supplied identifier.",
+            "instance": "/api/v1/providers/koblenz-servicebetrieb/service-areas/unknown-area/collection-events?from=2026-03-01&to=2026-03-31",
+            "code": "SERVICE_AREA_NOT_FOUND",
+            "requestId": "req-1"
+          }
+        ]
+      },
+      "CollectionEventsNotAvailableProblem": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "status": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "detail": {
+            "type": "string"
+          },
+          "instance": {
+            "type": "string"
+          },
+          "requestId": {
+            "type": "string"
+          },
+          "errors": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ValidationIssue"
+            }
+          },
+          "code": {
+            "type": "string",
+            "const": "COLLECTION_EVENTS_NOT_AVAILABLE"
+          }
+        },
+        "required": [
+          "type",
+          "title",
+          "status",
+          "detail",
+          "instance",
+          "requestId",
+          "code"
+        ],
+        "additionalProperties": false,
+        "description": "The provider and the service area both exist, but this provider publishes no official collection calendar for that area. The demo provider never publishes one.",
+        "examples": [
+          {
+            "type": "urn:abfall-radar:problem:collection-events-not-available",
+            "title": "Collection events not available",
+            "status": 404,
+            "detail": "The selected provider does not publish official collection events for this service area.",
+            "instance": "/api/v1/providers/demo/service-areas/koblenz-stadtmitte/collection-events?from=2026-03-01&to=2026-03-31",
+            "code": "COLLECTION_EVENTS_NOT_AVAILABLE",
+            "requestId": "req-1"
+          }
+        ]
+      },
+      "CollectionEventsNotFoundProblem": {
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/ProviderNotFoundProblem"
+          },
+          {
+            "$ref": "#/components/schemas/ServiceAreaNotFoundProblem"
+          },
+          {
+            "$ref": "#/components/schemas/CollectionEventsNotAvailableProblem"
+          }
+        ],
+        "description": "The requested collection-events resource does not exist. `code` states which part was not found: the provider, the service area, or an official calendar for that area.",
+        "discriminator": {
+          "propertyName": "code",
+          "mapping": {
+            "PROVIDER_NOT_FOUND": "#/components/schemas/ProviderNotFoundProblem",
+            "SERVICE_AREA_NOT_FOUND": "#/components/schemas/ServiceAreaNotFoundProblem",
+            "COLLECTION_EVENTS_NOT_AVAILABLE": "#/components/schemas/CollectionEventsNotAvailableProblem"
+          }
+        }
+      },
+      "ScheduleRangeNotCoveredProblem": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "status": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "detail": {
+            "type": "string"
+          },
+          "instance": {
+            "type": "string"
+          },
+          "requestId": {
+            "type": "string"
+          },
+          "errors": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ValidationIssue"
+            }
+          },
+          "code": {
+            "type": "string",
+            "const": "SCHEDULE_RANGE_NOT_COVERED"
+          }
+        },
+        "required": [
+          "type",
+          "title",
+          "status",
+          "detail",
+          "instance",
+          "requestId",
+          "code"
+        ],
+        "additionalProperties": false,
+        "description": "The requested range is not fully inside the validity window the source declares. Decided from that declared window alone, never from an empty result: a covered range that happens to contain no collection returns an empty list instead.",
+        "examples": [
+          {
+            "type": "urn:abfall-radar:problem:schedule-range-not-covered",
+            "title": "Requested range not covered",
+            "status": 422,
+            "detail": "The requested date range is not covered by the validity window the source declares.",
+            "instance": "/api/v1/providers/koblenz-servicebetrieb/service-areas/koblenz-stadtmitte/collection-events?from=2025-01-01&to=2025-12-31",
+            "code": "SCHEDULE_RANGE_NOT_COVERED",
+            "requestId": "req-1"
+          }
+        ]
+      },
+      "UpstreamSourceInvalidProblem": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "status": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "detail": {
+            "type": "string"
+          },
+          "instance": {
+            "type": "string"
+          },
+          "requestId": {
+            "type": "string"
+          },
+          "errors": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ValidationIssue"
+            }
+          },
+          "code": {
+            "type": "string",
+            "const": "UPSTREAM_SOURCE_INVALID"
+          }
+        },
+        "required": [
+          "type",
+          "title",
+          "status",
+          "detail",
+          "instance",
+          "requestId",
+          "code"
+        ],
+        "additionalProperties": false,
+        "description": "The official source was reached but is unusable — an unexpected content type, an oversized body, a parse failure, a calendar zone that is missing, duplicated, malformed, or not the expected one, an unmapped event summary, or an entry that cannot produce a valid event — and no valid cached schedule exists. Where a valid cached schedule does exist, a stale `200` is returned instead.",
+        "examples": [
+          {
+            "type": "urn:abfall-radar:problem:upstream-source-invalid",
+            "title": "Official source unusable",
+            "status": 502,
+            "detail": "The official source was retrieved but could not be used, and no valid schedule is available.",
+            "instance": "/api/v1/providers/koblenz-servicebetrieb/service-areas/koblenz-stadtmitte/collection-events?from=2026-03-01&to=2026-03-31",
+            "code": "UPSTREAM_SOURCE_INVALID",
+            "requestId": "req-1"
+          }
+        ]
+      },
+      "UpstreamSourceUnavailableProblem": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "status": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "detail": {
+            "type": "string"
+          },
+          "instance": {
+            "type": "string"
+          },
+          "requestId": {
+            "type": "string"
+          },
+          "errors": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ValidationIssue"
+            }
+          },
+          "code": {
+            "type": "string",
+            "const": "UPSTREAM_SOURCE_UNAVAILABLE"
+          }
+        },
+        "required": [
+          "type",
+          "title",
+          "status",
+          "detail",
+          "instance",
+          "requestId",
+          "code"
+        ],
+        "additionalProperties": false,
+        "description": "The official source could not be retrieved — the retrieval deadline elapsed, a connection error, a non-success status, a redirect leaving the approved origin, too many redirect hops, or a redirect loop — and no valid cached schedule exists. Where a valid cached schedule does exist, a stale `200` is returned instead.",
+        "examples": [
+          {
+            "type": "urn:abfall-radar:problem:upstream-source-unavailable",
+            "title": "Official source unavailable",
+            "status": 503,
+            "detail": "The official source could not be retrieved and no valid schedule is available.",
+            "instance": "/api/v1/providers/koblenz-servicebetrieb/service-areas/koblenz-stadtmitte/collection-events?from=2026-03-01&to=2026-03-31",
+            "code": "UPSTREAM_SOURCE_UNAVAILABLE",
+            "requestId": "req-1"
+          }
+        ]
+      },
+      "ProviderSourceKind": {
+        "type": "string",
+        "enum": [
+          "demo",
+          "official_ics"
+        ],
+        "description": "The kind of source a provider reads. `official_ics` is the calendar the responsible municipal operator publishes. `demo` is generated sample data and must never be presented as official municipal data."
+      },
+      "Provider": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1
+          },
+          "sourceKind": {
+            "$ref": "#/components/schemas/ProviderSourceKind"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "sourceKind"
+        ],
+        "additionalProperties": false,
+        "description": "A schedule provider exposed by this API, without provider-specific fields.",
+        "examples": [
+          {
+            "id": "demo",
+            "name": "Demo provider",
+            "sourceKind": "demo"
+          }
+        ]
+      },
+      "ServiceAreaValidity": {
+        "type": "object",
+        "properties": {
+          "from": {
+            "type": "string",
+            "format": "date",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))$"
+          },
+          "to": {
+            "type": "string",
+            "format": "date",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))$"
+          }
+        },
+        "required": [
+          "from",
+          "to"
+        ],
+        "additionalProperties": false,
+        "description": "The inclusive period the source declares it publishes collection dates for. A requested range that leaves it is refused rather than answered in part.",
+        "examples": [
+          {
+            "from": "2026-01-01",
+            "to": "2026-12-31"
+          }
+        ]
+      },
+      "ServiceAreaCollectionEventsAvailable": {
+        "type": "object",
+        "properties": {
+          "availability": {
+            "type": "string",
+            "const": "available"
+          },
+          "timeZone": {
+            "type": "string",
+            "minLength": 1
+          },
+          "validity": {
+            "$ref": "#/components/schemas/ServiceAreaValidity"
+          }
+        },
+        "required": [
+          "availability",
+          "timeZone",
+          "validity"
+        ],
+        "additionalProperties": false,
+        "description": "This provider publishes an official collection calendar for the area. `timeZone` is the zone the source publishes in, so a client derives the current date in the municipality’s zone rather than the device’s, and `validity` is the window a collection-events request must stay inside.",
+        "examples": [
+          {
+            "availability": "available",
+            "timeZone": "Europe/Berlin",
+            "validity": {
+              "from": "2026-01-01",
+              "to": "2026-12-31"
+            }
+          }
+        ]
+      },
+      "ServiceAreaCollectionEventsUnavailable": {
+        "type": "object",
+        "properties": {
+          "availability": {
+            "type": "string",
+            "const": "unavailable"
+          }
+        },
+        "required": [
+          "availability"
+        ],
+        "additionalProperties": false,
+        "description": "This provider publishes no official collection calendar for the area. A statement about the source, not about whether the area exists or is served: the area is real, and this provider simply has no calendar behind it. Every demo area reports this, with no zone and no window.",
+        "examples": [
+          {
+            "availability": "unavailable"
+          }
+        ]
+      },
+      "ServiceAreaCollectionEvents": {
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/ServiceAreaCollectionEventsAvailable"
+          },
+          {
+            "$ref": "#/components/schemas/ServiceAreaCollectionEventsUnavailable"
+          }
+        ],
+        "description": "Whether this provider publishes official collection events for the area. `availability` selects the variant: `available` carries the source’s zone and declared validity window, and `unavailable` carries nothing else.",
+        "discriminator": {
+          "propertyName": "availability",
+          "mapping": {
+            "available": "#/components/schemas/ServiceAreaCollectionEventsAvailable",
+            "unavailable": "#/components/schemas/ServiceAreaCollectionEventsUnavailable"
+          }
+        }
+      },
+      "ServiceArea": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "providerId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "locality": {
+            "type": "string",
+            "minLength": 1
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1
+          },
+          "collectionEvents": {
+            "$ref": "#/components/schemas/ServiceAreaCollectionEvents"
+          }
+        },
+        "required": [
+          "id",
+          "providerId",
+          "locality",
+          "name",
+          "collectionEvents"
+        ],
+        "additionalProperties": false,
+        "description": "A normalized collection area within a provider. `locality` is the town or city the area belongs to, and `collectionEvents` states whether this provider publishes an official calendar for it.",
+        "examples": [
+          {
+            "id": "koblenz-stadtmitte",
+            "providerId": "koblenz-servicebetrieb",
+            "locality": "Koblenz",
+            "name": "Stadtmitte",
+            "collectionEvents": {
+              "availability": "available",
+              "timeZone": "Europe/Berlin",
+              "validity": {
+                "from": "2026-01-01",
+                "to": "2026-12-31"
+              }
+            }
+          }
+        ]
+      },
+      "ProviderListResponse": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Provider"
+            }
+          }
+        },
+        "required": [
+          "data"
+        ],
+        "additionalProperties": false,
+        "description": "The providers this API can serve. Only demo data is available today.",
+        "examples": [
+          {
+            "data": [
+              {
+                "id": "demo",
+                "name": "Demo provider",
+                "sourceKind": "demo"
+              }
+            ]
+          }
+        ]
+      },
+      "ServiceAreaListResponse": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ServiceArea"
+            }
+          }
+        },
+        "required": [
+          "data"
+        ],
+        "additionalProperties": false,
+        "description": "The normalized service areas of the selected provider. Each area states its collection-events capability, so a client knows which areas it can request a schedule for before asking.",
+        "examples": [
+          {
+            "data": [
+              {
+                "id": "koblenz-stadtmitte",
+                "providerId": "koblenz-servicebetrieb",
+                "locality": "Koblenz",
+                "name": "Stadtmitte",
+                "collectionEvents": {
+                  "availability": "available",
+                  "timeZone": "Europe/Berlin",
+                  "validity": {
+                    "from": "2026-01-01",
+                    "to": "2026-12-31"
+                  }
+                }
+              }
+            ]
+          },
+          {
+            "data": [
+              {
+                "id": "koblenz-stadtmitte",
+                "providerId": "demo",
+                "locality": "Koblenz",
+                "name": "Stadtmitte",
+                "collectionEvents": {
+                  "availability": "unavailable"
+                }
+              },
+              {
+                "id": "koblenz-metternich-1",
+                "providerId": "demo",
+                "locality": "Koblenz",
+                "name": "Metternich 1",
+                "collectionEvents": {
+                  "availability": "unavailable"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "AllDayTiming": {
+        "type": "object",
+        "properties": {
+          "kind": {
+            "type": "string",
+            "const": "all_day"
+          }
+        },
+        "required": [
+          "kind"
+        ],
+        "additionalProperties": false,
+        "description": "The collection happens on the calendar date, with no window inside the day.",
+        "examples": [
+          {
+            "kind": "all_day"
+          }
+        ]
+      },
+      "TimeWindowTiming": {
+        "type": "object",
+        "properties": {
+          "kind": {
+            "type": "string",
+            "const": "time_window"
+          },
+          "startsAt": {
+            "type": "string",
+            "format": "date-time",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$"
+          },
+          "endsAt": {
+            "type": "string",
+            "format": "date-time",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$"
+          },
+          "timeZone": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "required": [
+          "kind",
+          "startsAt",
+          "endsAt",
+          "timeZone"
+        ],
+        "additionalProperties": false,
+        "description": "A bounded window in a named IANA time zone. The zone travels with the instants because it decides the local time a person is told to show up, and the daylight-saving rules that move it.",
+        "examples": [
+          {
+            "kind": "time_window",
+            "startsAt": "2026-03-21T10:00:00Z",
+            "endsAt": "2026-03-21T12:00:00Z",
+            "timeZone": "Europe/Berlin"
+          }
+        ]
+      },
+      "CollectionLocation": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "additionalProperties": false,
+        "description": "The place to bring something to, as the source names it.",
+        "examples": [
+          {
+            "name": "Rizzastraße Ecke Südallee"
+          }
+        ]
+      },
+      "CurbsideCollectionEvent": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "serviceAreaId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "wasteType": {
+            "type": "string",
+            "enum": [
+              "residual",
+              "bio",
+              "paper",
+              "yellow_bag",
+              "green_waste",
+              "christmas_tree",
+              "hazardous",
+              "small_electronics"
+            ]
+          },
+          "date": {
+            "type": "string",
+            "format": "date",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))$"
+          },
+          "title": {
+            "type": "string",
+            "minLength": 1
+          },
+          "source": {
+            "type": "string",
+            "enum": [
+              "demo",
+              "municipal_ics",
+              "user_rule"
+            ]
+          },
+          "collectionMode": {
+            "type": "string",
+            "const": "curbside"
+          },
+          "timing": {
+            "$ref": "#/components/schemas/AllDayTiming"
+          }
+        },
+        "required": [
+          "id",
+          "serviceAreaId",
+          "wasteType",
+          "date",
+          "title",
+          "source",
+          "collectionMode",
+          "timing"
+        ],
+        "additionalProperties": false,
+        "description": "Put the bin out for the day. Carries an `all_day` timing and never a location: there is nowhere to go.",
+        "examples": [
+          {
+            "id": "koblenz-servicebetrieb-koblenz-stadtmitte-paper-2026-08-14-9f2c1d7ab3e45608",
+            "serviceAreaId": "koblenz-stadtmitte",
+            "wasteType": "paper",
+            "date": "2026-08-14",
+            "title": "Altpapier",
+            "source": "municipal_ics",
+            "collectionMode": "curbside",
+            "timing": {
+              "kind": "all_day"
+            }
+          }
+        ]
+      },
+      "MobileDropOffCollectionEvent": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "serviceAreaId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "wasteType": {
+            "type": "string",
+            "enum": [
+              "residual",
+              "bio",
+              "paper",
+              "yellow_bag",
+              "green_waste",
+              "christmas_tree",
+              "hazardous",
+              "small_electronics"
+            ]
+          },
+          "date": {
+            "type": "string",
+            "format": "date",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))$"
+          },
+          "title": {
+            "type": "string",
+            "minLength": 1
+          },
+          "source": {
+            "type": "string",
+            "enum": [
+              "demo",
+              "municipal_ics",
+              "user_rule"
+            ]
+          },
+          "collectionMode": {
+            "type": "string",
+            "const": "mobile_drop_off"
+          },
+          "timing": {
+            "$ref": "#/components/schemas/TimeWindowTiming"
+          },
+          "location": {
+            "$ref": "#/components/schemas/CollectionLocation"
+          }
+        },
+        "required": [
+          "id",
+          "serviceAreaId",
+          "wasteType",
+          "date",
+          "title",
+          "source",
+          "collectionMode",
+          "timing",
+          "location"
+        ],
+        "additionalProperties": false,
+        "description": "Bring something to a place inside a window. The window, the zone, and the location are all required, so this branch can never describe a drop-off a person could not act on.",
+        "examples": [
+          {
+            "id": "koblenz-servicebetrieb-koblenz-stadtmitte-hazardous-2026-03-21-4b81e0c6f2a97d35",
+            "serviceAreaId": "koblenz-stadtmitte",
+            "wasteType": "hazardous",
+            "date": "2026-03-21",
+            "title": "Schadstoffe / Elektrokleinteile",
+            "source": "municipal_ics",
+            "collectionMode": "mobile_drop_off",
+            "timing": {
+              "kind": "time_window",
+              "startsAt": "2026-03-21T10:00:00Z",
+              "endsAt": "2026-03-21T12:00:00Z",
+              "timeZone": "Europe/Berlin"
+            },
+            "location": {
+              "name": "Rizzastraße Ecke Südallee"
+            }
+          }
+        ]
+      },
+      "CollectionEvent": {
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/CurbsideCollectionEvent"
+          },
+          {
+            "$ref": "#/components/schemas/MobileDropOffCollectionEvent"
+          }
+        ],
+        "description": "One collection. `collectionMode` selects the variant: `curbside` is an all-day collection at the address, `mobile_drop_off` is a staffed window at a named place.",
+        "discriminator": {
+          "propertyName": "collectionMode",
+          "mapping": {
+            "curbside": "#/components/schemas/CurbsideCollectionEvent",
+            "mobile_drop_off": "#/components/schemas/MobileDropOffCollectionEvent"
+          }
+        }
+      },
+      "ScheduleServiceArea": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "locality": {
+            "type": "string",
+            "minLength": 1
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "required": [
+          "id",
+          "locality",
+          "name"
+        ],
+        "additionalProperties": false,
+        "description": "The service area these events belong to, using the official naming the source publishes.",
+        "examples": [
+          {
+            "id": "koblenz-stadtmitte",
+            "locality": "Koblenz",
+            "name": "Stadtmitte"
+          }
+        ]
+      },
+      "ScheduleSource": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1
+          },
+          "landingPageUrl": {
+            "type": "string",
+            "format": "uri"
+          },
+          "attribution": {
+            "type": "string",
+            "minLength": 1
+          },
+          "timeZone": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "required": [
+          "name",
+          "landingPageUrl",
+          "attribution",
+          "timeZone"
+        ],
+        "additionalProperties": false,
+        "description": "Where the data came from. `landingPageUrl` is the operator’s public page; the direct calendar download is deliberately not part of this contract, so retrieval can change without breaking a client.",
+        "examples": [
+          {
+            "name": "Kommunaler Servicebetrieb",
+            "landingPageUrl": "https://servicebetrieb.koblenz.de/abfallwirtschaft/entsorgungstermine-digital/",
+            "attribution": "Kommunaler Servicebetrieb, Koblenz",
+            "timeZone": "Europe/Berlin"
+          }
+        ]
+      },
+      "ScheduleCoverage": {
+        "type": "object",
+        "properties": {
+          "wasteTypes": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "residual",
+                "bio",
+                "paper",
+                "yellow_bag",
+                "green_waste",
+                "christmas_tree",
+                "hazardous",
+                "small_electronics"
+              ]
+            }
+          }
+        },
+        "required": [
+          "wasteTypes"
+        ],
+        "additionalProperties": false,
+        "description": "The waste types the source declares it contains. Declared by the source catalogue, never inferred from the events returned: an empty `data` array with a non-empty coverage list means \"no collection in this range\", which is a different statement from \"this source does not cover this waste type\".",
+        "examples": [
+          {
+            "wasteTypes": [
+              "paper",
+              "yellow_bag",
+              "green_waste",
+              "christmas_tree",
+              "hazardous",
+              "small_electronics"
+            ]
+          }
+        ]
+      },
+      "ScheduleRange": {
+        "type": "object",
+        "properties": {
+          "from": {
+            "type": "string",
+            "format": "date",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))$"
+          },
+          "to": {
+            "type": "string",
+            "format": "date",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))$"
+          }
+        },
+        "required": [
+          "from",
+          "to"
+        ],
+        "additionalProperties": false,
+        "description": "The inclusive range that was requested and filtered on.",
+        "examples": [
+          {
+            "from": "2026-03-01",
+            "to": "2026-03-31"
+          }
+        ]
+      },
+      "CollectionEventMeta": {
+        "type": "object",
+        "properties": {
+          "provider": {
+            "$ref": "#/components/schemas/Provider"
+          },
+          "serviceArea": {
+            "$ref": "#/components/schemas/ScheduleServiceArea"
+          },
+          "source": {
+            "$ref": "#/components/schemas/ScheduleSource"
+          },
+          "retrievedAt": {
+            "type": "string",
+            "format": "date-time",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$"
+          },
+          "validFrom": {
+            "type": "string",
+            "format": "date",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))$"
+          },
+          "validTo": {
+            "type": "string",
+            "format": "date",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))$"
+          },
+          "freshness": {
+            "type": "string",
+            "enum": [
+              "fresh",
+              "stale"
+            ]
+          },
+          "coverage": {
+            "$ref": "#/components/schemas/ScheduleCoverage"
+          },
+          "range": {
+            "$ref": "#/components/schemas/ScheduleRange"
+          }
+        },
+        "required": [
+          "provider",
+          "serviceArea",
+          "source",
+          "retrievedAt",
+          "validFrom",
+          "validTo",
+          "freshness",
+          "coverage",
+          "range"
+        ],
+        "additionalProperties": false,
+        "description": "Provenance for the events in this response. `freshness` is `stale` when the last refresh failed and a previously retrieved schedule is being served; `retrievedAt` then remains the timestamp of that last successful retrieval, so a response never claims to be newer than it is."
+      },
+      "CollectionEventListResponse": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CollectionEvent"
+            }
+          },
+          "meta": {
+            "$ref": "#/components/schemas/CollectionEventMeta"
+          }
+        },
+        "required": [
+          "data",
+          "meta"
+        ],
+        "additionalProperties": false,
+        "description": "The official collection events inside the requested range, with the provenance of the source they came from.",
+        "examples": [
+          {
+            "data": [
+              {
+                "id": "koblenz-servicebetrieb-koblenz-stadtmitte-paper-2026-08-14-9f2c1d7ab3e45608",
+                "serviceAreaId": "koblenz-stadtmitte",
+                "wasteType": "paper",
+                "date": "2026-08-14",
+                "title": "Altpapier",
+                "source": "municipal_ics",
+                "collectionMode": "curbside",
+                "timing": {
+                  "kind": "all_day"
+                }
+              },
+              {
+                "id": "koblenz-servicebetrieb-koblenz-stadtmitte-hazardous-2026-03-21-4b81e0c6f2a97d35",
+                "serviceAreaId": "koblenz-stadtmitte",
+                "wasteType": "hazardous",
+                "date": "2026-03-21",
+                "title": "Schadstoffe / Elektrokleinteile",
+                "source": "municipal_ics",
+                "collectionMode": "mobile_drop_off",
+                "timing": {
+                  "kind": "time_window",
+                  "startsAt": "2026-03-21T10:00:00Z",
+                  "endsAt": "2026-03-21T12:00:00Z",
+                  "timeZone": "Europe/Berlin"
+                },
+                "location": {
+                  "name": "Rizzastraße Ecke Südallee"
+                }
+              }
+            ],
+            "meta": {
+              "provider": {
+                "id": "koblenz-servicebetrieb",
+                "name": "Kommunaler Servicebetrieb",
+                "sourceKind": "official_ics"
+              },
+              "serviceArea": {
+                "id": "koblenz-stadtmitte",
+                "locality": "Koblenz",
+                "name": "Stadtmitte"
+              },
+              "source": {
+                "name": "Kommunaler Servicebetrieb",
+                "landingPageUrl": "https://servicebetrieb.koblenz.de/abfallwirtschaft/entsorgungstermine-digital/",
+                "attribution": "Kommunaler Servicebetrieb, Koblenz",
+                "timeZone": "Europe/Berlin"
+              },
+              "retrievedAt": "2026-07-29T08:14:02.000Z",
+              "validFrom": "2026-01-01",
+              "validTo": "2026-12-31",
+              "freshness": "fresh",
+              "coverage": {
+                "wasteTypes": [
+                  "paper",
+                  "yellow_bag",
+                  "green_waste",
+                  "christmas_tree",
+                  "hazardous",
+                  "small_electronics"
+                ]
+              },
+              "range": {
+                "from": "2026-01-01",
+                "to": "2026-12-31"
+              }
+            }
+          },
+          {
+            "data": [
+              {
+                "id": "koblenz-servicebetrieb-koblenz-stadtmitte-paper-2026-08-14-9f2c1d7ab3e45608",
+                "serviceAreaId": "koblenz-stadtmitte",
+                "wasteType": "paper",
+                "date": "2026-08-14",
+                "title": "Altpapier",
+                "source": "municipal_ics",
+                "collectionMode": "curbside",
+                "timing": {
+                  "kind": "all_day"
+                }
+              },
+              {
+                "id": "koblenz-servicebetrieb-koblenz-stadtmitte-hazardous-2026-03-21-4b81e0c6f2a97d35",
+                "serviceAreaId": "koblenz-stadtmitte",
+                "wasteType": "hazardous",
+                "date": "2026-03-21",
+                "title": "Schadstoffe / Elektrokleinteile",
+                "source": "municipal_ics",
+                "collectionMode": "mobile_drop_off",
+                "timing": {
+                  "kind": "time_window",
+                  "startsAt": "2026-03-21T10:00:00Z",
+                  "endsAt": "2026-03-21T12:00:00Z",
+                  "timeZone": "Europe/Berlin"
+                },
+                "location": {
+                  "name": "Rizzastraße Ecke Südallee"
+                }
+              }
+            ],
+            "meta": {
+              "provider": {
+                "id": "koblenz-servicebetrieb",
+                "name": "Kommunaler Servicebetrieb",
+                "sourceKind": "official_ics"
+              },
+              "serviceArea": {
+                "id": "koblenz-stadtmitte",
+                "locality": "Koblenz",
+                "name": "Stadtmitte"
+              },
+              "source": {
+                "name": "Kommunaler Servicebetrieb",
+                "landingPageUrl": "https://servicebetrieb.koblenz.de/abfallwirtschaft/entsorgungstermine-digital/",
+                "attribution": "Kommunaler Servicebetrieb, Koblenz",
+                "timeZone": "Europe/Berlin"
+              },
+              "retrievedAt": "2026-07-27T05:02:11.000Z",
+              "validFrom": "2026-01-01",
+              "validTo": "2026-12-31",
+              "freshness": "stale",
+              "coverage": {
+                "wasteTypes": [
+                  "paper",
+                  "yellow_bag",
+                  "green_waste",
+                  "christmas_tree",
+                  "hazardous",
+                  "small_electronics"
+                ]
+              },
+              "range": {
+                "from": "2026-01-01",
+                "to": "2026-12-31"
+              }
+            }
+          }
+        ]
+      },
+      "HealthResponse": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string",
+            "const": "ok"
+          },
+          "service": {
+            "type": "string",
+            "const": "abfall-radar-api"
+          },
+          "timestamp": {
+            "type": "string",
+            "format": "date-time",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$"
+          }
+        },
+        "required": [
+          "status",
+          "service",
+          "timestamp"
+        ],
+        "additionalProperties": false,
+        "description": "The service is running. `timestamp` is generated when the request is handled.",
+        "examples": [
+          {
+            "status": "ok",
+            "service": "abfall-radar-api",
+            "timestamp": "2026-07-28T12:00:00.000Z"
+          }
+        ]
+      }
+    }
+  },
+  "paths": {
+    "/health": {
+      "get": {
+        "operationId": "getHealth",
+        "summary": "Report service health",
+        "tags": [
+          "Operations"
+        ],
+        "description": "Unversioned operational endpoint used by local development and future deployment probes. It reports process liveness only and does not check any provider.",
+        "responses": {
+          "200": {
+            "description": "The service is running. `timestamp` is generated when the request is handled.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HealthResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unexpected server error occurred. The response follows RFC 9457 and never contains stack traces, upstream payloads, or infrastructure details. Correlate `requestId` with the server logs.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/providers": {
+      "get": {
+        "operationId": "listProviders",
+        "summary": "List schedule providers",
+        "tags": [
+          "Providers"
+        ],
+        "description": "Returns the providers this API can serve, without provider-specific implementation fields. A provider whose `sourceKind` is `demo` returns generated sample data, which must never be presented as official municipal data.",
+        "responses": {
+          "200": {
+            "description": "The providers this API can serve. Only demo data is available today.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProviderListResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unexpected server error occurred. The response follows RFC 9457 and never contains stack traces, upstream payloads, or infrastructure details. Correlate `requestId` with the server logs.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/providers/{providerId}/service-areas": {
+      "get": {
+        "operationId": "listProviderServiceAreas",
+        "summary": "List the service areas of a provider",
+        "tags": [
+          "Providers"
+        ],
+        "description": "Returns the normalized service areas of the selected provider.\n\n`collectionEvents` states whether this provider publishes an official collection calendar for the area, discriminated on `availability`. An `available` area carries the zone the source publishes in and the validity window a collection-events request must stay inside, so a client can derive a correct range before asking for one. An `unavailable` area carries nothing else: the area exists and is served, but this provider has no calendar behind it, so requesting its events would fail.\n\nA provider whose `sourceKind` is `demo` returns generated sample data, which must never be presented as official municipal data.\n\nEvery demo area is therefore `unavailable`, with no invented zone and no invented window.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "maxLength": 64,
+              "pattern": "^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$"
+            },
+            "example": "demo",
+            "in": "path",
+            "name": "providerId",
+            "required": true,
+            "description": "Identifier of a provider returned by `GET /api/v1/providers`."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The normalized service areas of the selected provider. Each area states its collection-events capability, so a client knows which areas it can request a schedule for before asking.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServiceAreaListResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request did not satisfy the documented request schema. `errors` lists the rejected fields with stable paths and machine-readable codes.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationProblem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The supplied provider identifier is well formed but no provider is registered for it.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProviderNotFoundProblem"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unexpected server error occurred. The response follows RFC 9457 and never contains stack traces, upstream payloads, or infrastructure details. Correlate `requestId` with the server logs.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/providers/{providerId}/service-areas/{serviceAreaId}/collection-events": {
+      "get": {
+        "operationId": "listCollectionEvents",
+        "summary": "List official collection events for a service area",
+        "tags": [
+          "Schedules"
+        ],
+        "description": "Returns the collection events the responsible municipal operator published for the selected service area, filtered to the requested inclusive range.\n\nEach event is one of two variants, discriminated by `collectionMode`: a `curbside` event has an `all_day` timing and no location, and a `mobile_drop_off` event has a `time_window` timing with `startsAt`, `endsAt`, and `timeZone`, plus a location. No other combination is ever returned, so a client can switch on `collectionMode` and rely on the rest of the shape.\n\nEvents are filtered on their local `date`, so a timed drop-off belongs to the day a person would look for it under rather than to the day of its UTC instant.\n\n`meta` states where the data came from, when it was retrieved, which period the source covers, whether it is fresh or stale, and which waste types the source declares. `id` is opaque: its readable prefix exists for operators, and clients must not parse it.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "date",
+              "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))$"
+            },
+            "example": "2026-03-01",
+            "in": "query",
+            "name": "from",
+            "required": true,
+            "description": "First calendar date of the inclusive range."
+          },
+          {
+            "schema": {
+              "type": "string",
+              "format": "date",
+              "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))$"
+            },
+            "example": "2026-03-31",
+            "in": "query",
+            "name": "to",
+            "required": true,
+            "description": "Last calendar date of the inclusive range."
+          },
+          {
+            "schema": {
+              "type": "string",
+              "maxLength": 64,
+              "pattern": "^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$"
+            },
+            "example": "koblenz-servicebetrieb",
+            "in": "path",
+            "name": "providerId",
+            "required": true,
+            "description": "Identifier of a provider returned by `GET /api/v1/providers`."
+          },
+          {
+            "schema": {
+              "type": "string",
+              "maxLength": 64,
+              "pattern": "^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$"
+            },
+            "example": "koblenz-stadtmitte",
+            "in": "path",
+            "name": "serviceAreaId",
+            "required": true,
+            "description": "Identifier of a service area returned by `GET /api/v1/providers/{providerId}/service-areas`."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The official collection events inside the requested range, with the provenance of the source they came from.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CollectionEventListResponse"
+                },
+                "examples": {
+                  "fresh": {
+                    "summary": "Fresh official data",
+                    "description": "The source was refreshed successfully. The combined hazardous and small-electronics entry appears as two events sharing their date, window, and location while carrying different identifiers.",
+                    "value": {
+                      "data": [
+                        {
+                          "id": "koblenz-servicebetrieb-koblenz-stadtmitte-paper-2026-08-14-9f2c1d7ab3e45608",
+                          "serviceAreaId": "koblenz-stadtmitte",
+                          "wasteType": "paper",
+                          "date": "2026-08-14",
+                          "title": "Altpapier",
+                          "source": "municipal_ics",
+                          "collectionMode": "curbside",
+                          "timing": {
+                            "kind": "all_day"
+                          }
+                        },
+                        {
+                          "id": "koblenz-servicebetrieb-koblenz-stadtmitte-hazardous-2026-03-21-4b81e0c6f2a97d35",
+                          "serviceAreaId": "koblenz-stadtmitte",
+                          "wasteType": "hazardous",
+                          "date": "2026-03-21",
+                          "title": "Schadstoffe / Elektrokleinteile",
+                          "source": "municipal_ics",
+                          "collectionMode": "mobile_drop_off",
+                          "timing": {
+                            "kind": "time_window",
+                            "startsAt": "2026-03-21T10:00:00Z",
+                            "endsAt": "2026-03-21T12:00:00Z",
+                            "timeZone": "Europe/Berlin"
+                          },
+                          "location": {
+                            "name": "Rizzastraße Ecke Südallee"
+                          }
+                        }
+                      ],
+                      "meta": {
+                        "provider": {
+                          "id": "koblenz-servicebetrieb",
+                          "name": "Kommunaler Servicebetrieb",
+                          "sourceKind": "official_ics"
+                        },
+                        "serviceArea": {
+                          "id": "koblenz-stadtmitte",
+                          "locality": "Koblenz",
+                          "name": "Stadtmitte"
+                        },
+                        "source": {
+                          "name": "Kommunaler Servicebetrieb",
+                          "landingPageUrl": "https://servicebetrieb.koblenz.de/abfallwirtschaft/entsorgungstermine-digital/",
+                          "attribution": "Kommunaler Servicebetrieb, Koblenz",
+                          "timeZone": "Europe/Berlin"
+                        },
+                        "retrievedAt": "2026-07-29T08:14:02.000Z",
+                        "validFrom": "2026-01-01",
+                        "validTo": "2026-12-31",
+                        "freshness": "fresh",
+                        "coverage": {
+                          "wasteTypes": [
+                            "paper",
+                            "yellow_bag",
+                            "green_waste",
+                            "christmas_tree",
+                            "hazardous",
+                            "small_electronics"
+                          ]
+                        },
+                        "range": {
+                          "from": "2026-01-01",
+                          "to": "2026-12-31"
+                        }
+                      }
+                    }
+                  },
+                  "stale": {
+                    "summary": "Stale official data",
+                    "description": "The last refresh failed while a previously retrieved schedule was still valid. The shape is identical; only `freshness` and the preserved `retrievedAt` differ. A structured warning is logged with the request identifier.",
+                    "value": {
+                      "data": [
+                        {
+                          "id": "koblenz-servicebetrieb-koblenz-stadtmitte-paper-2026-08-14-9f2c1d7ab3e45608",
+                          "serviceAreaId": "koblenz-stadtmitte",
+                          "wasteType": "paper",
+                          "date": "2026-08-14",
+                          "title": "Altpapier",
+                          "source": "municipal_ics",
+                          "collectionMode": "curbside",
+                          "timing": {
+                            "kind": "all_day"
+                          }
+                        },
+                        {
+                          "id": "koblenz-servicebetrieb-koblenz-stadtmitte-hazardous-2026-03-21-4b81e0c6f2a97d35",
+                          "serviceAreaId": "koblenz-stadtmitte",
+                          "wasteType": "hazardous",
+                          "date": "2026-03-21",
+                          "title": "Schadstoffe / Elektrokleinteile",
+                          "source": "municipal_ics",
+                          "collectionMode": "mobile_drop_off",
+                          "timing": {
+                            "kind": "time_window",
+                            "startsAt": "2026-03-21T10:00:00Z",
+                            "endsAt": "2026-03-21T12:00:00Z",
+                            "timeZone": "Europe/Berlin"
+                          },
+                          "location": {
+                            "name": "Rizzastraße Ecke Südallee"
+                          }
+                        }
+                      ],
+                      "meta": {
+                        "provider": {
+                          "id": "koblenz-servicebetrieb",
+                          "name": "Kommunaler Servicebetrieb",
+                          "sourceKind": "official_ics"
+                        },
+                        "serviceArea": {
+                          "id": "koblenz-stadtmitte",
+                          "locality": "Koblenz",
+                          "name": "Stadtmitte"
+                        },
+                        "source": {
+                          "name": "Kommunaler Servicebetrieb",
+                          "landingPageUrl": "https://servicebetrieb.koblenz.de/abfallwirtschaft/entsorgungstermine-digital/",
+                          "attribution": "Kommunaler Servicebetrieb, Koblenz",
+                          "timeZone": "Europe/Berlin"
+                        },
+                        "retrievedAt": "2026-07-27T05:02:11.000Z",
+                        "validFrom": "2026-01-01",
+                        "validTo": "2026-12-31",
+                        "freshness": "stale",
+                        "coverage": {
+                          "wasteTypes": [
+                            "paper",
+                            "yellow_bag",
+                            "green_waste",
+                            "christmas_tree",
+                            "hazardous",
+                            "small_electronics"
+                          ]
+                        },
+                        "range": {
+                          "from": "2026-01-01",
+                          "to": "2026-12-31"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request did not satisfy the documented request schema. `errors` lists the rejected fields with stable paths and machine-readable codes.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationProblem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The requested collection-events resource does not exist. `code` states which part was not found: the provider, the service area, or an official calendar for that area.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CollectionEventsNotFoundProblem"
+                },
+                "examples": {
+                  "providerNotFound": {
+                    "summary": "Unknown provider",
+                    "description": "The provider identifier is well formed but no provider is registered for it.",
+                    "value": {
+                      "type": "urn:abfall-radar:problem:provider-not-found",
+                      "title": "Provider not found",
+                      "status": 404,
+                      "detail": "No schedule provider exists for the supplied identifier.",
+                      "instance": "/api/v1/providers/unknown/service-areas/koblenz-stadtmitte/collection-events?from=2026-03-01&to=2026-03-31",
+                      "code": "PROVIDER_NOT_FOUND",
+                      "requestId": "req-1"
+                    }
+                  },
+                  "serviceAreaNotFound": {
+                    "summary": "Unknown service area",
+                    "description": "The provider exists but does not serve a service area with that identifier.",
+                    "value": {
+                      "type": "urn:abfall-radar:problem:service-area-not-found",
+                      "title": "Service area not found",
+                      "status": 404,
+                      "detail": "The selected provider does not serve a service area with the supplied identifier.",
+                      "instance": "/api/v1/providers/koblenz-servicebetrieb/service-areas/unknown-area/collection-events?from=2026-03-01&to=2026-03-31",
+                      "code": "SERVICE_AREA_NOT_FOUND",
+                      "requestId": "req-1"
+                    }
+                  },
+                  "collectionEventsNotAvailable": {
+                    "summary": "No official calendar for this area",
+                    "description": "The provider and the area both exist, but this provider publishes no official calendar for it. The demo provider never publishes one.",
+                    "value": {
+                      "type": "urn:abfall-radar:problem:collection-events-not-available",
+                      "title": "Collection events not available",
+                      "status": 404,
+                      "detail": "The selected provider does not publish official collection events for this service area.",
+                      "instance": "/api/v1/providers/demo/service-areas/koblenz-stadtmitte/collection-events?from=2026-03-01&to=2026-03-31",
+                      "code": "COLLECTION_EVENTS_NOT_AVAILABLE",
+                      "requestId": "req-1"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The requested range is not fully inside the validity window the source declares. Decided from that declared window alone, never from an empty result: a covered range that happens to contain no collection returns an empty list instead.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ScheduleRangeNotCoveredProblem"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unexpected server error occurred. The response follows RFC 9457 and never contains stack traces, upstream payloads, or infrastructure details. Correlate `requestId` with the server logs.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "The official source was reached but is unusable — an unexpected content type, an oversized body, a parse failure, a calendar zone that is missing, duplicated, malformed, or not the expected one, an unmapped event summary, or an entry that cannot produce a valid event — and no valid cached schedule exists. Where a valid cached schedule does exist, a stale `200` is returned instead.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UpstreamSourceInvalidProblem"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The official source could not be retrieved — the retrieval deadline elapsed, a connection error, a non-success status, a redirect leaving the approved origin, too many redirect hops, or a redirect loop — and no valid cached schedule exists. Where a valid cached schedule does exist, a stale `200` is returned instead.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UpstreamSourceUnavailableProblem"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "servers": [
+    {
+      "url": "/",
+      "description": "The origin serving this document."
+    }
+  ],
+  "tags": [
+    {
+      "name": "Operations",
+      "description": "Operational endpoints outside the versioned product contract."
+    },
+    {
+      "name": "Providers",
+      "description": "The schedule provider catalogue and the service areas of each provider."
+    },
+    {
+      "name": "Schedules",
+      "description": "Official collection events for a service area, with the provenance and freshness of the source they came from."
+    }
+  ]
+}

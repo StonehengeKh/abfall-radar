@@ -12,11 +12,11 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit",
-    "zip": "wxt zip",
-    "zip:firefox": "wxt zip -b firefox"
+    "zip": "node scripts/release.ts chrome",
+    "zip:firefox": "node scripts/release.ts firefox"
   },
   "dependencies": {
-    "@abfall-radar/data-providers": "workspace:*",
+    "@abfall-radar/api-client": "workspace:*",
     "@abfall-radar/domain": "workspace:*",
     "@abfall-radar/ui": "workspace:*",
     "lucide-react": "catalog:",

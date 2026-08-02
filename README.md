@@ -37,8 +37,33 @@ Application-specific scripts are exposed from the root when the application beco
 
 ## Current milestone
 
-The API serves official municipal collection schedules for the verified Koblenz Stadtmitte area,
-ingested server-side from an allowlisted calendar file:
+The browser extension consumes the documented HTTP API and shows official municipal collection dates
+with their provenance. It reads no demo data at all:
+
+- the extension is a pure API client — it never retrieves or parses a municipal calendar, and requests no
+  municipal host permission;
+- **all HTTP lives in the Manifest V3 background service worker**, behind a typed message contract that
+  is validated at runtime on both sides; an import-graph test proves the popup cannot reach the transport
+  client;
+- `@abfall-radar/api-client` is a browser-safe, transport-only package whose types are generated from
+  OpenAPI and whose runtime validators are hand-written for exactly the boundary it reads, pinned to the
+  generated types at compile time;
+- a validated local cache paints the popup immediately and keeps it useful while the API is unreachable,
+  restored only through the **intersection** of what it covers with what is being asked for, so an
+  uncovered tail is never rendered as "no collection scheduled";
+- the requested 90-day window is derived in the zone the source publishes in, clamped into the declared
+  validity window, and no request is issued when nothing is covered;
+- settings are versioned and the selection is one value or `null`; a fresh install and every unverified
+  legacy district start at the explicit needs-selection state rather than at a municipality nobody chose;
+- a reminder may only use events inside the cache's covered range, and shows nothing when there is no
+  selection or nothing trustworthy available.
+
+The API is not deployed yet, so the extension is a development-configured artifact by design: a release
+or packaging build fails unless an explicit non-loopback HTTPS origin is supplied. **No production domain
+is invented or committed.**
+
+Underneath, the API serves official municipal collection schedules for the verified Koblenz Stadtmitte
+area, ingested server-side from an allowlisted calendar file:
 
 - a server-owned source catalogue; no client can supply or influence an upstream URL, host, or port;
 - bounded retrieval with one 5-second deadline, a 1 MiB body limit, origin pinning by scheme, hostname,
@@ -55,7 +80,9 @@ An unmapped or malformed upstream entry fails the whole refresh. A partial sched
 indistinguishable from a complete one to the person reading it, so ingestion never drops what it does
 not understand.
 
-The browser extension still runs on demo schedules; migrating it to the API is later work.
+Each service area states whether its provider publishes an official calendar for it, as a discriminated
+capability rather than nullable dates, so a client can construct a correct range before requesting a
+schedule. A demo area reports that no calendar is published, with no invented zone or window.
 
 The shared API foundation underneath is runnable and documented:
 
@@ -64,28 +91,31 @@ The shared API foundation underneath is runnable and documented:
 - validated startup configuration, structured logging, request identifiers, and graceful shutdown;
 - an OpenAPI contract generated from the route schemas, with Swagger UI and a machine-readable
   document;
+- committed generated artifacts — the OpenAPI document and the api-client transport types — produced by
+  building the application in process, with a drift test that fails when either is stale;
 - one centralized RFC 9457 Problem Details error boundary;
 - a provider catalogue and service-area slice covering the demo and official providers;
 - integration tests driven through Fastify injection.
 
-No client consumes the API yet. A provider whose `sourceKind` is `demo` returns generated sample data,
-which must never be presented as official municipal data.
+A provider whose `sourceKind` is `demo` returns generated sample data, which must never be presented as
+official municipal data. The extension therefore filters demo providers out of its selection surface
+entirely, so none of their areas is ever offered.
 
-The browser extension MVP includes:
+The browser extension includes:
 
-- a responsive React popup;
-- upcoming collection and settings views;
-- local preference storage;
+- a responsive React popup at 320 px and wider;
+- the dashboard, settings, and needs-selection surfaces;
+- versioned local settings behind one migration-aware repository;
 - Manifest V3 alarms and notifications;
-- a typed provider boundary and clearly labelled demo data;
-- unit and component tests.
-
-The extension runs on demo schedules. Official data reaches it when it is migrated to consume the API,
-which is a later task.
+- a validated schedule cache with explicit freshness and coverage labelling;
+- unit, component, and boundary tests.
 
 ### Browser extension development
 
+Run the API alongside it, because the extension has no data source other than the API:
+
 ```bash
+pnpm dev:api
 pnpm dev:extension
 ```
 
@@ -95,7 +125,12 @@ For a production build:
 pnpm --filter @abfall-radar/extension build
 ```
 
-Load `apps/extension/.output/chrome-mv3` from `chrome://extensions` with Developer mode enabled.
+Load `apps/extension/.output/chrome-mv3` from `chrome://extensions` with Developer mode enabled. With
+`WXT_API_BASE_URL` unset the build targets `http://127.0.0.1:3000`, which is where the API listens by
+default.
+
+See [the extension README](apps/extension/README.md) for the worker boundary, configuration, the release
+gate, permissions, and the UI states.
 
 ### API development
 

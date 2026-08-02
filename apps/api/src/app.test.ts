@@ -232,6 +232,10 @@ describe('generated OpenAPI contract', () => {
       'UpstreamSourceUnavailableProblem',
       'Provider',
       'ServiceArea',
+      'ServiceAreaCollectionEvents',
+      'ServiceAreaCollectionEventsAvailable',
+      'ServiceAreaCollectionEventsUnavailable',
+      'ServiceAreaValidity',
       'CollectionEvent',
       'CurbsideCollectionEvent',
       'MobileDropOffCollectionEvent',
@@ -271,20 +275,45 @@ describe('generated OpenAPI contract', () => {
       'ScheduleRangeNotCoveredProblem',
       'UpstreamSourceInvalidProblem',
       'UpstreamSourceUnavailableProblem',
+      'ServiceAreaCollectionEventsAvailable',
+      'ServiceAreaCollectionEventsUnavailable',
     ]) {
       expect(examplesFor(name), name).toEqual(expect.any(Array));
     }
 
-    // The examples are the values the existing demo provider really returns.
+    // The examples are the values the providers really return: the official provider publishes a
+    // calendar for its verified area, and the demo provider publishes none for any of its areas.
     expect(examplesFor('ServiceAreaListResponse')).toMatchObject([
       {
         data: [
-          { id: 'koblenz-stadtmitte', providerId: 'demo', locality: 'Koblenz', name: 'Stadtmitte' },
+          {
+            id: 'koblenz-stadtmitte',
+            providerId: 'koblenz-servicebetrieb',
+            locality: 'Koblenz',
+            name: 'Stadtmitte',
+            collectionEvents: {
+              availability: 'available',
+              timeZone: 'Europe/Berlin',
+              validity: { from: '2026-01-01', to: '2026-12-31' },
+            },
+          },
+        ],
+      },
+      {
+        data: [
+          {
+            id: 'koblenz-stadtmitte',
+            providerId: 'demo',
+            locality: 'Koblenz',
+            name: 'Stadtmitte',
+            collectionEvents: { availability: 'unavailable' },
+          },
           {
             id: 'koblenz-metternich-1',
             providerId: 'demo',
             locality: 'Koblenz',
             name: 'Metternich 1',
+            collectionEvents: { availability: 'unavailable' },
           },
         ],
       },
@@ -322,6 +351,58 @@ describe('generated OpenAPI contract', () => {
         mobile_drop_off: '#/components/schemas/MobileDropOffCollectionEvent',
       },
     });
+  });
+
+  it('documents the service-area capability as a oneOf discriminated on availability', async () => {
+    const document = await fetchDocument();
+    const capability = document.components.schemas.ServiceAreaCollectionEvents as
+      | { oneOf?: { $ref?: string }[]; anyOf?: unknown; discriminator?: unknown }
+      | undefined;
+
+    expect(capability?.anyOf).toBeUndefined();
+    expect(capability?.oneOf?.map((branch) => branch.$ref)).toEqual([
+      '#/components/schemas/ServiceAreaCollectionEventsAvailable',
+      '#/components/schemas/ServiceAreaCollectionEventsUnavailable',
+    ]);
+    expect(capability?.discriminator).toEqual({
+      propertyName: 'availability',
+      mapping: {
+        available: '#/components/schemas/ServiceAreaCollectionEventsAvailable',
+        unavailable: '#/components/schemas/ServiceAreaCollectionEventsUnavailable',
+      },
+    });
+  });
+
+  it('permits no invented zone or window on the unavailable capability branch', async () => {
+    const document = await fetchDocument();
+    const branchOf = (name: string) =>
+      document.components.schemas[name] as
+        | { required?: string[]; properties?: Record<string, unknown> }
+        | undefined;
+
+    const available = branchOf('ServiceAreaCollectionEventsAvailable');
+    const unavailable = branchOf('ServiceAreaCollectionEventsUnavailable');
+
+    // The branch that states a calendar exists must state which zone and which window it covers.
+    expect(available?.required).toEqual(
+      expect.arrayContaining(['availability', 'timeZone', 'validity']),
+    );
+    expect(
+      (document.components.schemas.ServiceAreaValidity as { required?: string[] } | undefined)
+        ?.required,
+    ).toEqual(expect.arrayContaining(['from', 'to']));
+
+    // And the branch that states none has nowhere to put either.
+    expect(Object.keys(unavailable?.properties ?? {})).toEqual(['availability']);
+  });
+
+  it('requires the capability on every service area', async () => {
+    const document = await fetchDocument();
+    const serviceArea = document.components.schemas.ServiceArea as
+      | { required?: string[] }
+      | undefined;
+
+    expect(serviceArea?.required).toEqual(expect.arrayContaining(['collectionEvents']));
   });
 
   it('permits no incomplete mobile drop-off in either event branch', async () => {

@@ -43,7 +43,12 @@ export const providerRoutes: FastifyPluginAsyncZod = async (app) => {
       schema: {
         operationId: 'listProviderServiceAreas',
         summary: 'List the service areas of a provider',
-        description: `Returns the normalized service areas of the selected provider. ${DEMO_DATA_NOTICE}`,
+        description: [
+          'Returns the normalized service areas of the selected provider.',
+          '`collectionEvents` states whether this provider publishes an official collection calendar for the area, discriminated on `availability`. An `available` area carries the zone the source publishes in and the validity window a collection-events request must stay inside, so a client can derive a correct range before asking for one. An `unavailable` area carries nothing else: the area exists and is served, but this provider has no calendar behind it, so requesting its events would fail.',
+          DEMO_DATA_NOTICE,
+          'Every demo area is therefore `unavailable`, with no invented zone and no invented window.',
+        ].join('\n\n'),
         tags: ['Providers'],
         params: ProviderIdParamsSchema,
         response: {
