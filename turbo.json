@@ -6,6 +6,18 @@
       "dependsOn": ["^build"],
       "outputs": [".output/**", "dist/**"]
     },
+    "@abfall-radar/extension#build": {
+      "dependsOn": ["^build"],
+      "outputs": [".output/**"],
+      "env": ["WXT_API_BASE_URL", "WXT_RELEASE"],
+      "inputs": ["$TURBO_DEFAULT$", ".env", ".env.*"]
+    },
+    "@abfall-radar/extension#test": {
+      "dependsOn": ["^build"],
+      "outputs": [],
+      "env": ["WXT_API_BASE_URL", "WXT_RELEASE"],
+      "inputs": ["$TURBO_DEFAULT$", ".env", ".env.*"]
+    },
     "dev": {
       "cache": false,
       "persistent": true

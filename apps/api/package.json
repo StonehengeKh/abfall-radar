@@ -6,6 +6,7 @@
   "scripts": {
     "build": "tsx scripts/build.ts",
     "dev": "tsx watch src/server.ts",
+    "generate:contract": "tsx scripts/generate-contract.ts",
     "start": "node --enable-source-maps dist/server.js",
     "test": "vitest run",
     "test:watch": "vitest",
@@ -21,9 +22,11 @@
     "zod": "catalog:"
   },
   "devDependencies": {
+    "@abfall-radar/api-client": "workspace:*",
     "@types/node": "catalog:",
     "esbuild": "catalog:",
     "openapi-types": "catalog:",
+    "openapi-typescript": "catalog:",
     "tsx": "catalog:",
     "typescript": "catalog:",
     "vitest": "catalog:"

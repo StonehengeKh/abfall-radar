@@ -59,6 +59,120 @@ Existing code this task builds on rather than duplicating:
 | `apps/extension/entrypoints/popup/style.css` | The existing popup shell and 320 px floor to preserve |
 | `apps/extension/src/features/*` | The existing responsive views and their tests to extend, not replace |
 
+## Approved implementation clarifications
+
+Approved by the repository owner during implementation planning, before any application code was
+written. Both resolve a question this task left implicit; neither changes an approved decision in
+[ADR 0004](../decisions/0004-extension-api-integration.md).
+
+### The local cache-restore message kind
+
+ADR 0004's data flow gives the background worker sole ownership of the schedule cache, so the popup
+must not read the raw storage item. Restoring a cached schedule therefore has to cross the message
+boundary, and it must do so without waiting for the network — otherwise the offline case, which is
+the case the cache exists for, could not render.
+
+The request union in [Worker gateway](#6-worker-gateway) is therefore the three API reads **plus one
+local-only kind**:
+
+```ts
+{ kind: 'restore_cached_schedule'; providerId: string; serviceAreaId: string }
+```
+
+It deliberately accepts no `from` or `to`: the requested window is derived from the entry's own
+capability snapshot, so a caller cannot ask for a range the cache was never evaluated against. On
+this kind the worker must:
+
+- perform no network request;
+- locate and validate the entry by normalized API origin, `providerId`, and `serviceAreaId`;
+- evict the entry and answer `data: null` when it is missing, invalid, past its 7-day retention, or
+  belongs to another origin;
+- take the cached response's already-validated `meta.source.timeZone`, `meta.validFrom`, and
+  `meta.validTo`, together with an injected clock, to derive source-local today and the current
+  90-day target range;
+- intersect that target range with the entry's recorded served range;
+- answer either `data: null` or the already-bounded restored state carrying the validated events, the
+  response metadata, `storedAt`, `coverage`, and `displayRange`;
+- never return an event outside `displayRange`.
+
+The live provider, service-area, and collection-events refresh remains a separate path, and this kind
+performs no request, so it cannot produce a network failure. The failure union stays exactly as ADR
+0004's table specifies.
+
+### The local cache-invalidation message kind
+
+ADR 0004 requires that when a successful capability refresh reports the stored area `unavailable`, the
+cache entry is **evicted or invalidated** — a provider that has withdrawn a calendar must not keep
+answering through a cache, because that is precisely the case where old data reads as current official
+data. The same ADR gives the background worker sole ownership of that cache, so the popup cannot evict the
+entry itself.
+
+The request union therefore carries a **second local-only kind**, which also performs no `fetch`:
+
+```ts
+{ kind: 'invalidate_cached_schedule'; providerId: string; serviceAreaId: string }
+```
+
+Like the restore, it takes no `from` or `to`: there is nothing to evaluate, only an entry to drop. On this
+kind the worker must:
+
+- perform no network request;
+- remove the cache entry for the normalized API origin, `providerId`, and `serviceAreaId`;
+- leave every other entry untouched, including another area of the same provider;
+- answer `{ ok: true, data: null }` whether or not an entry existed, because "nothing is cached for this
+  area" is the outcome either way;
+- treat a storage failure as best-effort, exactly as a cache write is, so it never becomes an error state.
+
+The popup sends this the moment a capability response reports the selected area missing or unavailable,
+**before** it clears its own state, and it must additionally supersede that attempt's in-flight cache
+restore so a late reply cannot repaint the withdrawn schedule. Superseding by attempt identifier alone is
+not enough: the restore belongs to the *same* attempt.
+
+This keeps cache ownership in the worker and adds no dependency and no change to the public HTTP API. It
+is the smallest internal solution consistent with ADR 0004. The alternative — letting the popup import the
+schedule-cache module — would put the range-intersection policy in two places and let a UI surface present
+a schedule the worker had already decided was unusable; a test asserts that no popup-owned module imports
+that storage module at all.
+
+### `WXT_RELEASE` is set by the packaging entry points
+
+`zip` and `zip:firefox` are controlled release and packaging commands rather than development or
+verification commands, so they set `WXT_RELEASE=1` themselves. Packaging can then never silently ship
+a development origin because an operator forgot the variable.
+
+- `pnpm --filter @abfall-radar/extension zip` without `WXT_API_BASE_URL` fails, and `zip:firefox`
+  follows the same rule.
+- `WXT_API_BASE_URL` stays externally supplied and is never hardcoded.
+- `dev`, `build`, `test`, `typecheck`, and `pnpm check` never set `WXT_RELEASE`.
+- A separately invoked release build may set `WXT_RELEASE=1` explicitly from the release workflow.
+
+An inline `WXT_RELEASE=1 wxt zip` in a package script would be POSIX-shell-only, and `cross-env` is a
+dependency this task does not permit. The scripts therefore run a small `apps/extension/scripts`
+entry point that sets the variable and then calls `wxt`'s programmatic API, which Node 24 executes
+directly with no added dependency. The exact release and verification commands are documented in
+`apps/extension/README.md`.
+
+### One dependency beyond the table: `@types/node` in `packages/api-client`
+
+The import-graph guard reads source files to walk them, so it needs types for `node:fs`, `node:path`,
+and `node:url`. `packages/api-client` declares no `@types/node`, and
+[the dependency table](#manifest-and-dependency-changes) does not list one.
+
+`@types/node` is therefore added to `packages/api-client` as a **`catalog:` devDependency**, reusing the
+repository's existing pinned version. No new version is introduced. Conditions:
+
+- it is **test and tooling only** and must never become a runtime dependency;
+- `node:fs`, `node:path`, and `node:url` may be imported **only** by the import-graph test and tooling,
+  never from the package's production entry graph;
+- the guard **stays in `packages/api-client`**, which is where the browser-safety invariant is owned;
+- the guard must still assert the **complete** set of bare specifiers reachable from the production
+  entry point, which is what proves no Node built-in, no server framework, and no other workspace
+  package enters that graph.
+
+The alternatives were rejected: hand-declaring Vite's `import.meta.glob` would redeclare a bundler API
+in userland, and moving the guard into `apps/api` would put a package's own boundary invariant outside
+the package and reach into it by relative path.
+
 ## Scope
 
 Implement in this order.

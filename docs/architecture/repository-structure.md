@@ -22,21 +22,58 @@ flowchart TD
   Client --> Mobile["Mobile app"]
 ```
 
-The extension initially reads a provider locally. When the API stage starts, the same normalized
-domain model remains the boundary while transport and synchronization move behind `api-client`.
+The extension now reads the API exclusively through `api-client`; it no longer resolves a provider
+locally. The normalized domain model remains the boundary that product surfaces consume, and the
+transport-to-domain mapping is one explicit adapter inside the consumer.
+
+## The api-client boundary
+
+`packages/api-client` is browser-safe and transport-only, per
+[ADR 0004](../decisions/0004-extension-api-integration.md). Two rules shape it beyond the ownership table
+above.
+
+**It does not depend on `packages/domain`.** This package owns the wire shape and the domain owns the
+business model; neither is expressed in terms of the other. Mapping between them belongs to whichever
+consumer needs it, and stays there until a second consumer exists.
+
+**Its types are generated and its validators are hand-written.** OpenAPI stays the canonical contract, so
+`src/generated/` is emitted from the document and never edited. Runtime validators are hand-written and
+scoped to the untrusted HTTP boundary, because generated types vanish at runtime. A compile-time check
+pins each validator to its generated type, and a drift test in `apps/api` fails when either committed
+artifact is stale.
+
+Generation is owned by `apps/api`, which owns the contract: its script builds the application in process
+and writes both artifacts, including the one inside `packages/api-client`. That dev-time coupling points
+from an application to a package, which the dependency direction allows. The inverse — tooling inside a
+shared package reaching into an application's layout — is the direction the architecture forbids.
+
+## The extension network boundary
+
+`apps/extension` constructs an HTTP request in exactly one place: the Manifest V3 background service
+worker. A popup is a short-lived window, so letting each UI surface issue its own requests would scatter
+the timeout, cache, and error policy across components that are destroyed when it closes.
+
+Every other surface reaches data through a typed message contract that is validated at runtime on both
+sides, because a message crosses a process boundary even though both sides ship in one artifact. The
+boundary is enforced mechanically: a test walks the popup entry's import graph and fails if `api-client`
+is reachable from it.
+
+Message-envelope and persisted-storage schemas are **strict**, while API response validators **strip**
+unknown members. The difference is deliberate: an unexpected member on an internal boundary is a defect,
+whereas an additive server field must not break an installed extension.
 
 ## Workspace ownership
 
 | Workspace | Owns | Must not own |
 | --- | --- | --- |
-| `apps/extension` | Browser lifecycle, permissions, storage, alarms, popup composition | Municipal parsing or reusable domain rules |
+| `apps/extension` | Browser lifecycle, permissions, storage, alarms, popup composition, the worker-owned network boundary | Municipal parsing, reusable domain rules, or HTTP outside the background worker |
 | `apps/web` | Routes, web shell, PWA behavior, web feature composition | Browser extension APIs |
 | `apps/api` | HTTP composition, persistence, jobs, provider orchestration | Product UI |
 | `apps/mobile` | Native shell and native feature composition | DOM components |
 | `packages/domain` | Schemas, models, pure business rules | Frameworks, I/O, municipality details |
 | `packages/data-providers` | Source contracts, adapters, normalization | Product UI or persisted user settings |
 | `packages/ui` | Semantic tokens and DOM React primitives | Product-specific data fetching |
-| `packages/api-client` | Typed transport contract | Application state or visual behavior |
+| `packages/api-client` | Typed transport contract, request construction, deadlines, failure translation | Application state, visual behavior, a cache, a product retry policy, or a domain dependency |
 | `packages/test-utils` | Cross-workspace builders and adapters | Product-only fixtures |
 
 ## Dependency direction

@@ -1,0 +1,119 @@
+import { readFile } from 'node:fs/promises';
+import { relative } from 'node:path';
+import { describe, expect, it } from 'vitest';
+import {
+  buildContractArtifacts,
+  buildGeneratedClientModule,
+  buildOpenApiDocumentSource,
+  GENERATED_CLIENT_MODULE_PATH,
+  OPENAPI_DOCUMENT_PATH,
+  serializeOpenApiDocument,
+} from './generate-contract';
+
+/**
+ * The drift check.
+ *
+ * OpenAPI is the canonical transport contract, and two artifacts are generated from it and committed:
+ * the document itself and the TypeScript module `@abfall-radar/api-client` reads its transport types
+ * from. Committed generated files invite hand-editing, and a route schema can change without either
+ * artifact following. This regenerates both in memory and compares byte-for-byte, so a stale or edited
+ * artifact fails `pnpm check` rather than reaching a client.
+ */
+
+const REPOSITORY_ROOT_PREFIX = '../../..';
+
+const describePath = (path: string): string => relative(process.cwd(), path);
+
+const STALE_ARTIFACT_HINT =
+  'Run `pnpm --filter @abfall-radar/api generate:contract` and commit the result. Never edit a generated artifact by hand.';
+
+describe('the committed contract artifacts', () => {
+  it('match what the current route schemas produce', async () => {
+    const [artifacts, committedDocument, committedModule] = await Promise.all([
+      buildContractArtifacts(),
+      readFile(OPENAPI_DOCUMENT_PATH, 'utf8'),
+      readFile(GENERATED_CLIENT_MODULE_PATH, 'utf8'),
+    ]);
+
+    expect(
+      committedDocument,
+      `${describePath(OPENAPI_DOCUMENT_PATH)} is stale. ${STALE_ARTIFACT_HINT}`,
+    ).toBe(artifacts.openApiDocument);
+    expect(
+      committedModule,
+      `${describePath(GENERATED_CLIENT_MODULE_PATH)} is stale. ${STALE_ARTIFACT_HINT}`,
+    ).toBe(artifacts.generatedClientModule);
+  });
+
+  it('is generated without binding a network port or reading a development server', async () => {
+    // The document is produced by building the application in process. Proof that nothing listened:
+    // a second generation in the same process succeeds, which a bound port would not allow.
+    const first = await buildOpenApiDocumentSource();
+    const second = await buildOpenApiDocumentSource();
+
+    expect(second).toBe(first);
+  });
+
+  it('emits the generated module from the committed document bytes, so the two cannot disagree', async () => {
+    const committedDocument = await readFile(OPENAPI_DOCUMENT_PATH, 'utf8');
+
+    expect(await buildGeneratedClientModule(committedDocument)).toBe(
+      await readFile(GENERATED_CLIENT_MODULE_PATH, 'utf8'),
+    );
+  });
+
+  it('detects a document that no longer matches the contract', async () => {
+    // The mirror image of the first assertion: proof the byte comparison would catch an edit rather
+    // than passing because both sides are computed the same way.
+    const documentSource = await buildOpenApiDocumentSource();
+
+    expect(documentSource.replace('"3.1.0"', '"3.1.1"')).not.toBe(documentSource);
+  });
+
+  it('detects a contract change that reaches the generated module', async () => {
+    // A renamed transport member is the kind of drift the module comparison exists to catch: the
+    // document and the module would otherwise disagree about what a client can read.
+    const documentSource = await buildOpenApiDocumentSource();
+    const renamed = documentSource.replaceAll('"locality"', '"localityName"');
+
+    expect(renamed).not.toBe(documentSource);
+
+    const generated = await buildGeneratedClientModule(documentSource);
+    const generatedFromRenamed = await buildGeneratedClientModule(renamed);
+
+    expect(generatedFromRenamed).not.toBe(generated);
+    expect(generated).toContain('locality: string;');
+    expect(generatedFromRenamed).toContain('localityName: string;');
+  });
+
+  it('emits the capability union this task added, so the emitter really reads this contract', async () => {
+    const committedModule = await readFile(GENERATED_CLIENT_MODULE_PATH, 'utf8');
+
+    expect(committedModule).toContain('ServiceAreaCollectionEventsAvailable');
+    expect(committedModule).toContain('ServiceAreaCollectionEventsUnavailable');
+    expect(committedModule).toContain('availability: "unavailable"');
+  });
+
+  it('writes the generated module inside packages/api-client', () => {
+    // The dev-time coupling points from the application that owns the contract to the package that
+    // consumes it, never the other way around.
+    expect(GENERATED_CLIENT_MODULE_PATH).toContain('packages/api-client/src/generated/api.ts');
+    expect(relative(OPENAPI_DOCUMENT_PATH, GENERATED_CLIENT_MODULE_PATH)).toContain(
+      REPOSITORY_ROOT_PREFIX,
+    );
+  });
+
+  it('states the never-edit rule inside the generated module', async () => {
+    const committedModule = await readFile(GENERATED_CLIENT_MODULE_PATH, 'utf8');
+
+    expect(committedModule.startsWith('/**')).toBe(true);
+    expect(committedModule).toContain('Do not edit this file by hand');
+    expect(committedModule).toContain('generate:contract');
+  });
+
+  it('serializes the document with two-space indentation and a trailing newline', () => {
+    const serialized = serializeOpenApiDocument({ openapi: '3.1.0', nested: { value: 1 } });
+
+    expect(serialized).toBe('{\n  "openapi": "3.1.0",\n  "nested": {\n    "value": 1\n  }\n}\n');
+  });
+});

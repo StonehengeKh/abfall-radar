@@ -6,7 +6,12 @@ import {
 import { createKoblenzScheduleProvider } from '@abfall-radar/data-providers/node';
 import type { Clock, FetchLike } from '@abfall-radar/data-providers/node';
 import type { District } from '@abfall-radar/domain';
-import type { Provider, ProviderSourceKind, ServiceArea } from '../routes/v1/providers.schemas';
+import type {
+  Provider,
+  ProviderSourceKind,
+  ServiceArea,
+  ServiceAreaCollectionEvents,
+} from '../routes/v1/providers.schemas';
 
 /**
  * `sourceKind` lives here rather than on the provider contracts so exposing a provider over HTTP never
@@ -63,18 +68,53 @@ export const findProviderEntry = (
   catalogue.find((entry) => entry.provider.id === providerId);
 
 /**
+ * Resolves what this provider publishes for one area, from the source manifest alone.
+ *
+ * Only an official provider has a manifest, so only it can report `available`, and the zone and window
+ * come from that manifest rather than from a default: an area whose manifest cannot be resolved reports
+ * `unavailable` instead of borrowing another area's values.
+ */
+export const toCollectionEventsCapability = (
+  entry: ProviderCatalogueEntry,
+  serviceAreaId: string,
+): ServiceAreaCollectionEvents => {
+  if (entry.sourceKind !== 'official_ics') {
+    return { availability: 'unavailable' };
+  }
+
+  const manifest = entry.provider.findManifest(serviceAreaId);
+
+  return manifest === undefined
+    ? { availability: 'unavailable' }
+    : {
+        availability: 'available',
+        timeZone: manifest.timeZone,
+        validity: { from: manifest.validFrom, to: manifest.validTo },
+      };
+};
+
+/**
  * `service area` is the location-neutral transport term for the domain `District`. The domain model
  * keeps its own name; renaming it is a separate contract-change task.
+ *
+ * The capability is a parameter rather than a member filled in afterwards, so no partially built area
+ * missing its capability can escape this function.
  */
-export const toServiceArea = (district: District): ServiceArea => ({
+export const toServiceArea = (
+  district: District,
+  collectionEvents: ServiceAreaCollectionEvents,
+): ServiceArea => ({
   id: district.id,
   providerId: district.providerId,
   locality: district.city,
   name: district.name,
+  collectionEvents,
 });
 
 export const listServiceAreas = async (entry: ProviderCatalogueEntry): Promise<ServiceArea[]> => {
   const districts = await entry.provider.getDistricts();
 
-  return districts.map(toServiceArea);
+  return districts.map((district) =>
+    toServiceArea(district, toCollectionEventsCapability(entry, district.id)),
+  );
 };

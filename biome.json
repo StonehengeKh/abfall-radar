@@ -3,13 +3,16 @@
   "files": {
     "includes": [
       "**",
+      "!!**/.claude",
       "!!**/node_modules",
       "!!**/.output",
       "!!**/.turbo",
       "!!**/.wxt",
       "!!**/coverage",
       "!!**/dist",
-      "!!pnpm-lock.yaml"
+      "!!pnpm-lock.yaml",
+      "!!apps/api/openapi.json",
+      "!!packages/api-client/src/generated"
     ]
   },
   "formatter": {
