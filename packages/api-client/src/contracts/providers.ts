@@ -29,3 +29,24 @@ export const ProviderListResponseSchema = z.object({
 });
 
 export type ProviderListResponse = z.infer<typeof ProviderListResponseSchema>;
+
+/**
+ * A city and the official providers behind it.
+ *
+ * `providers` is non-empty by contract: a city exists because something serves it, so an empty list
+ * would describe a city this client cannot act on. Rejecting it here keeps that impossible state out of
+ * every surface rather than leaving each one to guard it.
+ */
+export const CitySchema = z.object({
+  id: z.string().min(1),
+  name: z.string().min(1),
+  providers: z.array(ProviderSchema).min(1),
+});
+
+export type City = z.infer<typeof CitySchema>;
+
+export const CityListResponseSchema = z.object({
+  data: z.array(CitySchema),
+});
+
+export type CityListResponse = z.infer<typeof CityListResponseSchema>;

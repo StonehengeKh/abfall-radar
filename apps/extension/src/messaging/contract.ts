@@ -26,7 +26,16 @@ import { WebUrlSchema } from '@/src/schedule/web-url';
  * different rules from the HTTP one.
  */
 
+/**
+ * Mirrors `ApiFailure['operation']` from the shared transport vocabulary.
+ *
+ * The extension performs only the last three; `listCities` belongs to the web application's city-first
+ * catalogue. It is listed anyway because a transport failure carries its operation through this
+ * boundary verbatim, so the union has to stay total against the shared one rather than silently
+ * narrowing a value it would then fail to validate.
+ */
 export const MESSAGE_OPERATIONS = [
+  'listCities',
   'listProviders',
   'listServiceAreas',
   'listCollectionEvents',

@@ -41,22 +41,124 @@ describe('the Koblenz provider surface', () => {
     expect(provider.name).toBe('Kommunaler Servicebetrieb');
   });
 
-  it('returns the verified area with official naming', async () => {
+  it('returns every official area the operator publishes, with official naming', async () => {
     const { provider } = createProvider();
+    const districts = await provider.getDistricts();
 
-    expect(await provider.getDistricts()).toEqual([
-      {
-        id: AREA,
-        city: 'Koblenz',
-        name: 'Stadtmitte',
-        providerId: 'koblenz-servicebetrieb',
-      },
+    // The operator's published list, transcribed from the source on 2026-09-16. Written out rather
+    // than derived from the manifest under test, so dropping an area fails here.
+    const expected = [
+      'Altstadt',
+      'Arenberg',
+      'Arzheim',
+      'Asterstein',
+      'Bubenheim',
+      'Ehrenbreitstein',
+      'Goldgrube',
+      'Güls 1',
+      'Güls 2',
+      'Horchheim',
+      'Horchheimer Höhe',
+      'Immendorf',
+      'Industriegebiet Rheinhafen',
+      'Karthause 1',
+      'Karthause 2',
+      'Karthause 3',
+      'Kesselheim',
+      'Lay',
+      'Lützel',
+      'Metternich 1',
+      'Metternich 2',
+      'Moselweiss',
+      'Neuendorf',
+      'Niederberg',
+      'Oberwerth',
+      'Pfaffendorf',
+      'Pfaffendorfer Höhe',
+      'Rauental',
+      'Rübenach 1',
+      'Rübenach 2',
+      'Stadtmitte',
+      'Stolzenfels',
+      'Vorstadt',
+      'Wallersheim',
+    ];
+
+    expect(districts.map((district) => district.name)).toEqual(expected);
+    // The numbered subdivisions are distinct areas, not one area with a suffix.
+    expect(districts.filter((district) => district.name.startsWith('Karthause'))).toHaveLength(3);
+  });
+
+  it('gives every area a stable, unique identity under one city', async () => {
+    const { provider } = createProvider();
+    const districts = await provider.getDistricts();
+    const ids = districts.map((district) => district.id);
+
+    expect(new Set(ids).size).toBe(ids.length);
+    expect(new Set(districts.map((district) => district.cityId))).toEqual(new Set(['koblenz']));
+    expect(new Set(districts.map((district) => district.providerId))).toEqual(
+      new Set(['koblenz-servicebetrieb']),
+    );
+    // Identity is derived from the city and the operator's own slug, never from the display name.
+    expect(ids.every((id) => /^koblenz-[a-z0-9]+(?:-[a-z0-9]+)*$/.test(id))).toBe(true);
+    expect(ids).toContain('koblenz-neuendorf');
+    expect(ids).toContain('koblenz-stadtmitte');
+  });
+
+  it('keeps an official area without a published calendar visible and without a manifest', async () => {
+    const { provider } = createProvider();
+    const districts = await provider.getDistricts();
+    const withoutCalendar = districts.find((district) => district.name === 'Horchheimer Höhe');
+
+    // Present in the catalogue — hiding it would imply the municipality does not serve it — but with
+    // no manifest, which is what makes the API report it as unavailable.
+    expect(withoutCalendar).toBeDefined();
+    expect(provider.findManifest(withoutCalendar?.id ?? '')).toBeUndefined();
+  });
+
+  it('resolves a distinct verified manifest for every area that has one', async () => {
+    const { provider } = createProvider();
+    const districts = await provider.getDistricts();
+    const manifests = districts
+      .map((district) => provider.findManifest(district.id))
+      .filter((manifest) => manifest !== undefined);
+
+    expect(manifests).toHaveLength(33);
+    // No two areas share a calendar URL, so no area can serve another area's collection days.
+    expect(new Set(manifests.map((manifest) => manifest.calendarUrl)).size).toBe(manifests.length);
+
+    const neuendorf = provider.findManifest('koblenz-neuendorf');
+    const stadtmitte = provider.findManifest('koblenz-stadtmitte');
+
+    expect(neuendorf?.calendarUrl).toBe(
+      'https://servicebetrieb.koblenz.de/abfallwirtschaft/entsorgungstermine-digital/entsorgungstermine-2026-digital/ics-neuendorf.ics',
+    );
+    expect(neuendorf?.calendarUrl).not.toBe(stadtmitte?.calendarUrl);
+    expect(neuendorf?.areaName).toBe('Neuendorf');
+  });
+
+  it('records coverage per area rather than copying one area across the catalogue', () => {
+    const { provider } = createProvider();
+    const rheinhafen = provider.findManifest('koblenz-industriegebiet-rheinhafen');
+    const neuendorf = provider.findManifest('koblenz-neuendorf');
+
+    // Verified against each area's own published calendar: the industrial estate publishes neither a
+    // hazardous collection nor a Christmas-tree collection, and declaring one would overstate it.
+    expect(rheinhafen?.coverage).toEqual(['paper', 'yellow_bag', 'green_waste']);
+    expect(neuendorf?.coverage).toEqual([
+      'paper',
+      'yellow_bag',
+      'green_waste',
+      'christmas_tree',
+      'hazardous',
+      'small_electronics',
     ]);
   });
 
   it.each([
     ['the verified area', AREA, true],
-    ['an unserved area', 'koblenz-metternich-1', false],
+    ['an area the operator lists without a calendar', 'koblenz-horchheimer-hoehe', false],
+    ['an area this operator does not serve', 'trier-mitte', false],
   ])('resolves a manifest for %s', (_reason, serviceAreaId, expected) => {
     const { provider } = createProvider();
 

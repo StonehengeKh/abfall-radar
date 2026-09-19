@@ -7,10 +7,12 @@ import {
 } from '../../http/problem-details';
 import {
   findProviderEntry,
+  listCities,
   listProviders,
   listServiceAreas,
 } from '../../providers/provider-catalogue';
 import {
+  CityListResponseSchema,
   ProviderIdParamsSchema,
   ProviderListResponseSchema,
   ServiceAreaListResponseSchema,
@@ -20,6 +22,26 @@ const DEMO_DATA_NOTICE =
   'A provider whose `sourceKind` is `demo` returns generated sample data, which must never be presented as official municipal data.';
 
 export const providerRoutes: FastifyPluginAsyncZod = async (app) => {
+  app.get(
+    '/cities',
+    {
+      schema: {
+        operationId: 'listCities',
+        summary: 'List the cities this API serves',
+        description: [
+          'Returns each city together with the official providers behind it, so a client can offer a city before a district and resolve the responsible provider without a separate lookup.',
+          'A city appears only when at least one official provider serves it. Demo providers are excluded: generated sample data is not a municipality’s waste service.',
+        ].join('\n\n'),
+        tags: ['Providers'],
+        response: {
+          200: CityListResponseSchema,
+          500: ProblemDetailsSchema,
+        },
+      },
+    },
+    async () => ({ data: await listCities(app.providerCatalogue) }),
+  );
+
   app.get(
     '/providers',
     {

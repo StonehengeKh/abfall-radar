@@ -659,7 +659,36 @@ importing another fixture is unaffected.
 #### The HTML entry has a closed source shell
 
 **AR-005 rejects additional HTML build inputs.** Before following any script edge, Check 1b reads
-`apps/web/index.html` in full and compares it with this fixed source template:
+`apps/web/index.html` in full and compares it with this fixed source template.
+
+> **Amended** by [ADR 0005 addendum 3](../decisions/0005-addendum-3-audited-favicon.md) (2026-09-19):
+> the template gains **one** resource link, the favicon, referenced from inside `src/` so Vite resolves,
+> hashes and emits it like every other shipped output. `publicDir: false` remains in force and no public
+> directory exists. The amended template is:
+>
+> ```html
+> <!doctype html>
+> <html lang="de">
+>   <head>
+>     <meta charset="UTF-8">
+>     <meta name="viewport" content="width=device-width, initial-scale=1">
+>     <link rel="icon" type="image/svg+xml" href="/src/assets/favicon.svg">
+>     <title>AbfallRadar</title>
+>   </head>
+>   <body>
+>     <div id="root"></div>
+>     <script type="module" src="/src/main.tsx"></script>
+>   </body>
+> </html>
+> ```
+>
+> Everything below still holds, with one exception named there: the favicon's icon link. A **second**
+> icon link, any other resource link, and every other construct in the list remain rejected, and the
+> emitted asset is audited with the outputs it ships beside — exactly one icon link in the emitted HTML,
+> pointing at a hashed asset that exists, is the only image in the build, and whose only absolute URL is
+> the SVG namespace name.
+
+The original template of the first slice, retained as the record of that decision:
 
 ```html
 <!doctype html>
@@ -687,6 +716,10 @@ Consequently an added stylesheet/preload/icon link, image or `srcset`, media sou
 `srcdoc`, object, SVG resource reference, `base`, template, inline script/style, event attribute,
 import map, second module script, changed entry path, or entity-encoded spelling is rejected as an
 unsupported HTML source shell. No HTML parser dependency or general HTML resource walker is required.
+
+Since [addendum 3](../decisions/0005-addendum-3-audited-favicon.md), the single favicon icon link above
+is part of the template rather than an addition to it; every other item in this list is unchanged, and a
+further icon link is still rejected.
 The reported file and first differing source location identify the rejection; fixture contents are
 irrelevant. HTML introduces exactly one permitted edge:
 `index.html → /src/main.tsx → apps/web/src/main.tsx`. The normal script/CSS traversal owns everything

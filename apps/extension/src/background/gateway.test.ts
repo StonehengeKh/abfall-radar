@@ -59,6 +59,14 @@ const RESTORE_REQUEST = {
   serviceAreaId: OFFICIAL_AREA_ID,
 } as const;
 
+/**
+ * The same areas as the API returns them.
+ *
+ * The transport model carries the city identity the popup's own summary does not, so the doubles build
+ * it here rather than widening the extension's model for a field it never uses.
+ */
+const API_AREAS = MIXED_AREAS.map((area) => ({ ...area, cityId: 'koblenz' }));
+
 const ok = <Data>(data: Data): ApiResult<Data> => ({ ok: true, data });
 
 const failed = <Data>(failure: ApiFailure): ApiResult<Data> => ({ ok: false, failure });
@@ -117,6 +125,7 @@ const createStubClient = (options: StubOptions = {}) => {
   const client: ApiClient = {
     origin: ORIGIN,
     timeoutMs: 8000,
+    listCities: async () => ok({ data: [] }),
     async listProviders() {
       calls.listProviders += 1;
 
@@ -125,7 +134,7 @@ const createStubClient = (options: StubOptions = {}) => {
     async listServiceAreas() {
       calls.listServiceAreas += 1;
 
-      return options.serviceAreas?.() ?? ok({ data: MIXED_AREAS });
+      return options.serviceAreas?.() ?? ok({ data: API_AREAS });
     },
     async listCollectionEvents(query) {
       calls.listCollectionEvents += 1;
@@ -620,8 +629,9 @@ describe('coalescing across the message boundary and the worker', () => {
       client: {
         origin: ORIGIN,
         timeoutMs: 8000,
+        listCities: async () => ok({ data: [] }),
         listProviders,
-        listServiceAreas: async () => ok({ data: MIXED_AREAS }),
+        listServiceAreas: async () => ok({ data: API_AREAS }),
         listCollectionEvents: async () => ok(collectionEventsResponse()),
       },
       logger: createRecordingLogger().logger,
@@ -1185,8 +1195,9 @@ describe('the local cache invalidation', () => {
       const client: ApiClient = {
         origin: ORIGIN,
         timeoutMs: 8000,
+        listCities: async () => ok({ data: [] }),
         listProviders: async () => ok({ data: CATALOGUE_WITH_DEMO }),
-        listServiceAreas: async () => ok({ data: MIXED_AREAS }),
+        listServiceAreas: async () => ok({ data: API_AREAS }),
         listCollectionEvents: async (query) => {
           started?.();
           await held;
@@ -1965,8 +1976,9 @@ describe('the local cache invalidation', () => {
       const client: ApiClient = {
         origin: ORIGIN,
         timeoutMs: 8000,
+        listCities: async () => ok({ data: [] }),
         listProviders: async () => ok({ data: CATALOGUE_WITH_DEMO }),
-        listServiceAreas: async () => ok({ data: MIXED_AREAS }),
+        listServiceAreas: async () => ok({ data: API_AREAS }),
         listCollectionEvents: async (query) => {
           await held;
 
@@ -2087,6 +2099,7 @@ describe('the handler contract', () => {
     const throwingClient: ApiClient = {
       origin: ORIGIN,
       timeoutMs: 8000,
+      listCities: () => Promise.resolve({ ok: true as const, data: { data: [] } }),
       listProviders: () => Promise.reject(new Error('unexpected: https://internal/path')),
       listServiceAreas: () => Promise.reject(new Error('unexpected')),
       listCollectionEvents: () => Promise.reject(new Error('unexpected')),
@@ -2117,8 +2130,9 @@ describe('the handler contract', () => {
       client: {
         origin: ORIGIN,
         timeoutMs: 8000,
+        listCities: async () => ok({ data: [] }),
         listProviders,
-        listServiceAreas: async () => ok({ data: MIXED_AREAS }),
+        listServiceAreas: async () => ok({ data: API_AREAS }),
         listCollectionEvents: async () => ok(collectionEventsResponse()),
       },
       logger: createRecordingLogger().logger,
@@ -2257,8 +2271,9 @@ describe('a late response after an invalidation', () => {
     const client: ApiClient = {
       origin: ORIGIN,
       timeoutMs: 8000,
+      listCities: async () => ok({ data: [] }),
       listProviders: async () => ok({ data: CATALOGUE_WITH_DEMO }),
-      listServiceAreas: async () => ok({ data: MIXED_AREAS }),
+      listServiceAreas: async () => ok({ data: API_AREAS }),
       listCollectionEvents: async () => {
         await gate;
 
@@ -2811,8 +2826,9 @@ describe('a collection response superseded by an invalidation', () => {
     const client: ApiClient = {
       origin: ORIGIN,
       timeoutMs: 8000,
+      listCities: async () => ok({ data: [] }),
       listProviders: async () => ok({ data: CATALOGUE_WITH_DEMO }),
-      listServiceAreas: async () => ok({ data: MIXED_AREAS }),
+      listServiceAreas: async () => ok({ data: API_AREAS }),
       listCollectionEvents: async (query) => {
         started?.();
         await held;
@@ -2932,8 +2948,9 @@ describe('a collection response superseded by an invalidation', () => {
     const client: ApiClient = {
       origin: ORIGIN,
       timeoutMs: 8000,
+      listCities: async () => ok({ data: [] }),
       listProviders: async () => ok({ data: CATALOGUE_WITH_DEMO }),
-      listServiceAreas: async () => ok({ data: MIXED_AREAS }),
+      listServiceAreas: async () => ok({ data: API_AREAS }),
       listCollectionEvents: async () => {
         started?.();
         await held;

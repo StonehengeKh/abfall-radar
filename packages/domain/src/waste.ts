@@ -101,6 +101,9 @@ export type CollectionEvent = z.infer<typeof CollectionEventSchema>;
 
 export const DistrictSchema = z.object({
   id: z.string().min(1),
+  /** Stable identity of the city, so a catalogue can group districts without matching display text. */
+  cityId: z.string().min(1),
+  /** The city's display name, as its operator publishes it. */
   city: z.string().min(1),
   name: z.string().min(1),
   providerId: z.string().min(1),

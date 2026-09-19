@@ -2,6 +2,11 @@
 
 - Status: Accepted
 - Date: 2026-08-02
+- Amended by:
+  [addendum 1 — a city-first selection flow](0005-addendum-1-city-first-selection.md) (2026-09-16),
+  [addendum 2 — the confirmed selection is remembered locally](0005-addendum-2-confirmed-selection-persistence.md)
+  (2026-09-18),
+  [addendum 3 — one audited favicon in the shell](0005-addendum-3-audited-favicon.md) (2026-09-19)
 
 ## Context
 
@@ -214,7 +219,9 @@ call raw `fetch`, construct another client, or replace the wrapper with a differ
 `cache: 'no-store'` prevents the **browser HTTP cache** from answering or storing these web requests.
 It does not bypass the API's deliberate server-side official-source cache, and it is separate from the
 web product rule that no schedule is persisted in `localStorage`, `IndexedDB`, cookies, a service
-worker, or an offline schedule cache. The web does not change `packages/api-client` globally and does
+worker, or an offline schedule cache — a rule
+[addendum 2](0005-addendum-2-confirmed-selection-persistence.md) leaves intact: it stores the confirmed
+selection's identifiers, never a schedule. The web does not change `packages/api-client` globally and does
 not alter the extension's worker-owned transport or caching behavior.
 
 Deterministic adapter tests use a recording fake `FetchLike` and no real network. They exercise all
@@ -1422,6 +1429,10 @@ application does fetch on load — it has to, or there is nothing to choose from
 - **The catalogue request selects nothing.** It populates a picker.
 - **A single offered provider is still not preselected**, and neither is a single available area.
   "There is only one" is a fact about today's catalogue, not consent.
+  **Amended** by [addendum 1](0005-addendum-1-city-first-selection.md): once the flow starts at a city,
+  the city choice is the consent, and a city served by exactly one official provider resolves that
+  provider instead of showing a step with a single answer. A single available **area** is still never
+  preselected, and no city is ever chosen automatically.
 - **Demo providers are filtered and cannot be selected.**
 - **No service-area request before an offered provider has been explicitly selected**, verified
   against a successful catalogue — a stored or in-flight identifier is not evidence.
@@ -1430,6 +1441,10 @@ application does fetch on load — it has to, or there is nothing to choose from
   schedule lifecycle.** No collection-events request exists before it.
 - **Changing the provider clears the draft area**, so an identifier is never carried across providers.
 - **Reload returns to needs-selection**, because this milestone has no persistence.
+  **Amended** by [addendum 2](0005-addendum-2-confirmed-selection-persistence.md): the confirmed city,
+  provider and district are remembered in one versioned `localStorage` record, revalidated against the
+  catalogue on the next run, and the schedule is fetched again. No schedule is stored, and an invalid
+  record is cleared and ends at the step that has to be decided again.
 
 ### Navigation: `Zurück`, `Auswahl ändern`, and `Erneut versuchen`
 
@@ -1658,6 +1673,11 @@ absence does not block acceptance — see
 [Verification scope](#verification-scope-what-jsdom-proves-and-what-it-cannot).
 
 ### Selection is session-only, and reloading returns to needs-selection
+
+> **Superseded** by [addendum 2](0005-addendum-2-confirmed-selection-persistence.md) (2026-09-18): the
+> confirmed city, provider and district are now remembered in one versioned `localStorage` record and
+> revalidated on the next run. The decision below is retained as the record of the first slice — what
+> was true then, and the cost that was accepted with it.
 
 For this milestone the confirmed selection lives in React state and nowhere else. No `localStorage`,
 no `IndexedDB`, no cookie, no server persistence, no account, and no migration logic.

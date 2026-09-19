@@ -2,7 +2,7 @@ import type { z } from 'zod';
 import type { components } from '../generated/api';
 import type { CollectionEventListResponseSchema } from './collection-events';
 import type { ProblemDetailsSchema } from './problem-details';
-import type { ProviderListResponseSchema } from './providers';
+import type { CityListResponseSchema, ProviderListResponseSchema } from './providers';
 import type {
   ServiceAreaCollectionEventsSchema,
   ServiceAreaListResponseSchema,
@@ -31,6 +31,11 @@ type AssignableTo<A, B> = [A] extends [B] ? true : never;
 export const providerListResponseMatchesContract: AssignableBothWays<
   z.infer<typeof ProviderListResponseSchema>,
   Schemas['ProviderListResponse']
+> = true;
+
+export const cityListResponseMatchesContract: AssignableBothWays<
+  z.infer<typeof CityListResponseSchema>,
+  Schemas['CityListResponse']
 > = true;
 
 export const serviceAreaListResponseMatchesContract: AssignableBothWays<

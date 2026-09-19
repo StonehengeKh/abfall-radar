@@ -30,12 +30,32 @@ boundaries; their framework dependencies are added when their first vertical sli
 pnpm install
 pnpm dev:extension
 pnpm dev:api
+pnpm dev:web
 pnpm check
 ```
 
 Application-specific scripts are exposed from the root when the application becomes active.
 
 ## Current milestone
+
+The responsive web application delivers its first official-schedule vertical slice, per
+[ADR 0005](docs/decisions/0005-responsive-web-schedule.md) and
+[AR-005](docs/tasks/AR-005-responsive-web-schedule.md):
+
+- `apps/web` is a Vite React application that reaches data through one named data layer,
+  `src/adapters/`, over **same-origin** requests built from the document's own resolved origin; a
+  browsing context without a usable origin renders a stated configuration state instead of guessing;
+- a person explicitly chooses an offered official provider and an available area — nothing is
+  preselected and no schedule is requested before confirmation;
+- the requested 90-day window is derived in the **source's** zone and clamped into the declared
+  validity window, and a source-date check keeps a request that outlived source midnight from being
+  published as current;
+- provenance, freshness, the declared coverage, and the effective range render alongside every
+  schedule, including a successful empty one;
+- the selection is session-only: a reload returns to the selection step, which is a recorded
+  trade-off rather than a defect.
+
+## Previous milestone
 
 The browser extension consumes the documented HTTP API and shows official municipal collection dates
 with their provenance. It reads no demo data at all:

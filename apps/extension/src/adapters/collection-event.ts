@@ -13,8 +13,11 @@ import type { CollectionEventPayload } from '@/src/messaging/contract';
  * `getRelativeDateLabel`, and the existing dashboard props keep working unchanged, so the responsive
  * popup this project already reviewed is preserved rather than rebuilt.
  *
- * It lives in the extension until a second consumer exists, per the rule that a shared abstraction waits
- * for a real second consumer.
+ * It stays in this workspace because no permitted ground for extraction is met — not because a second
+ * consumer has yet to appear. A second consumer alone never requires extraction; it only triggers a
+ * comparison. Extraction needs either demonstrated duplicated behavior or an already established stable
+ * domain boundary, and speculative future reuse establishes neither. See the repository architecture's
+ * extraction rule and ADR 0005, which records why the web consumer keeps its own adapter.
  */
 
 export class CollectionEventAdapterError extends Error {

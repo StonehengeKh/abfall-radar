@@ -3,20 +3,20 @@
   font-family:
     Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
 
-  --ar-color-canvas: oklch(0.985 0.008 160);
-  --ar-color-surface: oklch(1 0 0);
-  --ar-color-surface-muted: oklch(0.965 0.008 160);
-  --ar-color-text: oklch(0.2 0.025 160);
-  --ar-color-text-muted: oklch(0.49 0.025 160);
-  --ar-color-border: oklch(0.9 0.015 160);
-  --ar-color-brand: oklch(0.48 0.12 160);
-  --ar-color-brand-strong: oklch(0.38 0.1 160);
-  --ar-color-brand-soft: oklch(0.96 0.035 160);
-  --ar-color-on-brand: oklch(0.99 0.004 160);
-  --ar-color-focus: oklch(0.58 0.15 160);
-  --ar-color-danger: oklch(0.56 0.2 25);
-  --ar-color-demo-surface: oklch(0.97 0.035 80);
-  --ar-color-demo-text: oklch(0.52 0.11 65);
+  --ar-color-canvas: #f2f8f4;
+  --ar-color-surface: #ffffff;
+  --ar-color-surface-muted: #e9f2ec;
+  --ar-color-text: #142d22;
+  --ar-color-text-muted: #526a5c;
+  --ar-color-border: #d8e6dd;
+  --ar-color-brand: #007b50;
+  --ar-color-brand-strong: #00603e;
+  --ar-color-brand-soft: #e2f1ea;
+  --ar-color-on-brand: #ffffff;
+  --ar-color-focus: #007b50;
+  --ar-color-danger: #b3261e;
+  --ar-color-demo-surface: #fdf3e0;
+  --ar-color-demo-text: #7a5510;
 
   --ar-color-waste-residual-surface: oklch(0.95 0.01 260);
   --ar-color-waste-residual-text: oklch(0.4 0.03 260);
@@ -38,13 +38,104 @@
   --ar-radius-lg: 1.5rem;
   --ar-radius-xl: 1.75rem;
 
-  --ar-shadow-sm: 0 0.25rem 1rem oklch(0.2 0.025 160 / 8%);
-  --ar-shadow-md: 0 1rem 2.5rem oklch(0.2 0.025 160 / 14%);
-  --ar-shadow-brand: 0 0.5rem 1.5rem oklch(0.38 0.1 160 / 28%);
+  /* Restrained by design: a card is separated by its border first and its shadow second. */
+  --ar-shadow-sm: 0 1px 2px #142d220f;
+  --ar-shadow-md: 0 8px 24px #142d2214;
+  --ar-shadow-brand: 0 6px 18px #007b5033;
 
   --ar-duration-fast: 120ms;
   --ar-duration-normal: 200ms;
   --ar-easing-standard: cubic-bezier(0.2, 0, 0, 1);
+}
+
+/*
+ * The dark palette: the same semantic tokens, re-pointed.
+ *
+ * Every rule below redefines only the `--ar-*` values, so no component, utility, or product surface has
+ * to know which appearance is active — a token consumer written for light mode is already correct here.
+ *
+ * Written three times on purpose. The bare `@media` block follows the system for anyone who has not
+ * chosen, guarded by `:not([data-theme="light"])` so an explicit light choice still wins inside a dark
+ * system; `[data-theme="dark"]` applies an explicit dark choice in a light system. No colour is defined
+ * only inside a media query, so the light palette above is always the complete fallback.
+ */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+
+    --ar-color-canvas: #0c1110;
+    --ar-color-surface: #151d19;
+    --ar-color-surface-muted: #1d2822;
+    --ar-color-text: #f0f6f1;
+    --ar-color-text-muted: #acbcb0;
+    --ar-color-border: #26332c;
+    --ar-color-brand: #b7ef79;
+    --ar-color-brand-strong: #c8f492;
+    --ar-color-brand-soft: #1b2a1c;
+    --ar-color-on-brand: #0c1110;
+    --ar-color-focus: #b7ef79;
+    --ar-color-danger: #ff8a80;
+    --ar-color-demo-surface: #2a2416;
+    --ar-color-demo-text: #e8d6a8;
+
+    --ar-color-waste-residual-surface: oklch(0.3 0.02 260);
+    --ar-color-waste-residual-text: oklch(0.88 0.03 260);
+    --ar-color-waste-bio-surface: oklch(0.32 0.05 80);
+    --ar-color-waste-bio-text: oklch(0.9 0.09 80);
+    --ar-color-waste-paper-surface: oklch(0.3 0.04 235);
+    --ar-color-waste-paper-text: oklch(0.88 0.08 235);
+    --ar-color-waste-packaging-surface: oklch(0.33 0.06 95);
+    --ar-color-waste-packaging-text: oklch(0.91 0.1 95);
+    --ar-color-waste-green-surface: oklch(0.31 0.05 150);
+    --ar-color-waste-green-text: oklch(0.89 0.1 150);
+    --ar-color-waste-hazardous-surface: oklch(0.31 0.05 25);
+    --ar-color-waste-hazardous-text: oklch(0.88 0.1 25);
+    --ar-color-waste-electronics-surface: oklch(0.31 0.05 300);
+    --ar-color-waste-electronics-text: oklch(0.89 0.09 300);
+
+    /* Shadows carry no weight on a dark ground; a lifted surface reads through its own lightness. */
+    --ar-shadow-sm: 0 0.25rem 1rem oklch(0 0 0 / 40%);
+    --ar-shadow-md: 0 1rem 2.5rem oklch(0 0 0 / 50%);
+    --ar-shadow-brand: 0 0.5rem 1.5rem #b7ef7938;
+  }
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+
+  --ar-color-canvas: #0c1110;
+  --ar-color-surface: #151d19;
+  --ar-color-surface-muted: #1d2822;
+  --ar-color-text: #f0f6f1;
+  --ar-color-text-muted: #acbcb0;
+  --ar-color-border: #26332c;
+  --ar-color-brand: #b7ef79;
+  --ar-color-brand-strong: #c8f492;
+  --ar-color-brand-soft: #1b2a1c;
+  --ar-color-on-brand: #0c1110;
+  --ar-color-focus: #b7ef79;
+  --ar-color-danger: #ff8a80;
+  --ar-color-demo-surface: #2a2416;
+  --ar-color-demo-text: #e8d6a8;
+
+  --ar-color-waste-residual-surface: oklch(0.3 0.02 260);
+  --ar-color-waste-residual-text: oklch(0.88 0.03 260);
+  --ar-color-waste-bio-surface: oklch(0.32 0.05 80);
+  --ar-color-waste-bio-text: oklch(0.9 0.09 80);
+  --ar-color-waste-paper-surface: oklch(0.3 0.04 235);
+  --ar-color-waste-paper-text: oklch(0.88 0.08 235);
+  --ar-color-waste-packaging-surface: oklch(0.33 0.06 95);
+  --ar-color-waste-packaging-text: oklch(0.91 0.1 95);
+  --ar-color-waste-green-surface: oklch(0.31 0.05 150);
+  --ar-color-waste-green-text: oklch(0.89 0.1 150);
+  --ar-color-waste-hazardous-surface: oklch(0.31 0.05 25);
+  --ar-color-waste-hazardous-text: oklch(0.88 0.1 25);
+  --ar-color-waste-electronics-surface: oklch(0.31 0.05 300);
+  --ar-color-waste-electronics-text: oklch(0.89 0.09 300);
+
+  --ar-shadow-sm: 0 0.25rem 1rem oklch(0 0 0 / 40%);
+  --ar-shadow-md: 0 1rem 2.5rem oklch(0 0 0 / 50%);
+  --ar-shadow-brand: 0 0.5rem 1.5rem #b7ef7938;
 }
 
 @theme inline {
@@ -81,22 +172,34 @@
   --shadow-ar-brand: var(--ar-shadow-brand);
 }
 
-*,
-*::before,
-*::after {
-  box-sizing: border-box;
-}
+/*
+ * Base element rules, in the `base` layer on purpose.
+ *
+ * Unlayered CSS beats **every** layered rule regardless of specificity, and Tailwind emits its utilities
+ * into `@layer utilities`. Left unlayered, `button { font: inherit }` therefore silently defeated every
+ * `text-*`, `font-*`, `leading-*` and `tracking-*` utility ever written on a button in this repository:
+ * `button.text-xs` computed to 16 px while `span.text-xs` computed to 12 px. Declaring these in `base`
+ * keeps the reset — a button still inherits the page font by default — and lets a utility override it,
+ * which is what the code that writes those classes has always assumed.
+ */
+@layer base {
+  *,
+  *::before,
+  *::after {
+    box-sizing: border-box;
+  }
 
-button,
-input,
-select,
-textarea {
-  font: inherit;
-}
+  button,
+  input,
+  select,
+  textarea {
+    font: inherit;
+  }
 
-:focus-visible {
-  outline: 2px solid var(--ar-color-focus);
-  outline-offset: 2px;
+  :focus-visible {
+    outline: 2px solid var(--ar-color-focus);
+    outline-offset: 2px;
+  }
 }
 
 .ar-hero {

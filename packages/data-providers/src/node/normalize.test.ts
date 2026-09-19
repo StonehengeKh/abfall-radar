@@ -201,6 +201,47 @@ describe('the curbside LOCATION property', () => {
     expectAcceptedWithoutLocation(curbsideWith(location));
   });
 
+  it.each([
+    [
+      'a parenthesised round description',
+      'Güls 1 (nördlich und einschließlich der Straße "Am Mühlbach")',
+    ],
+    ['a second locality joined by a slash', 'Niederberg / Neudorf'],
+    [
+      'the operator writing the area name in lower case',
+      'metternich 1 (nördlich der Trierer Straße)',
+    ],
+  ])('accepts the area name qualified by %s and omits it from the event', (_reason, location) => {
+    // Verified across the operator's 33 published 2026 calendars: every curbside location begins with
+    // the area name, most exactly, the rest with one of these qualifications.
+    const areaName = location.split(/ \(| \//)[0] ?? '';
+    const events = normalizeCalendar({
+      manifest: { ...manifest, areaName },
+      mapping: koblenzSummaryMapping,
+      calendar: parseCalendar(
+        buildCalendar({
+          events: [allDayEvent({ summary: 'Altpapier', date: '20260107', location })],
+        }),
+        manifest,
+      ),
+    });
+
+    expectAcceptedWithoutLocation(events);
+  });
+
+  it.each([
+    ['a drop-off place', 'Kirmesplatz (Am Ufer)'],
+    ['a street corner', 'Am Löwentor'],
+    ['a collection point', 'Schadstoffsammelstelle'],
+    ['a different area', 'Metternich 2'],
+  ])('still refuses a curbside entry located at %s', (_reason, location) => {
+    // The rule exists so that "bring this somewhere" can never become "put the bin out". None of these
+    // begins with the area name, so each still fails the whole refresh.
+    expect(() => curbsideWith(location)).toThrowError(
+      expect.objectContaining({ name: 'SourceFailureError', reason: 'event-invalid' }),
+    );
+  });
+
   it('accepts a doubled internal space and an NFD spelling of a multi-word area name', () => {
     // Two separate hazards in one fixture: the source doubled an internal space, and it encoded its
     // diacritics as combining marks. Comparing raw strings would reject this and take a whole source out

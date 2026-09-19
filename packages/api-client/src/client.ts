@@ -7,7 +7,12 @@ import {
   type ScheduleRange,
 } from './contracts/collection-events';
 import { ProblemDetailsSchema, toProblemFailure } from './contracts/problem-details';
-import { type ProviderListResponse, ProviderListResponseSchema } from './contracts/providers';
+import {
+  type CityListResponse,
+  CityListResponseSchema,
+  type ProviderListResponse,
+  ProviderListResponseSchema,
+} from './contracts/providers';
 import {
   type ServiceAreaListResponse,
   ServiceAreaListResponseSchema,
@@ -69,6 +74,7 @@ export interface ApiClient {
   /** The normalized origin every request is built from. Part of a consumer's cache key. */
   readonly origin: string;
   readonly timeoutMs: number;
+  listCities(options?: RequestOptions): Promise<ApiResult<CityListResponse>>;
   listProviders(options?: RequestOptions): Promise<ApiResult<ProviderListResponse>>;
   listServiceAreas(
     providerId: string,
@@ -367,6 +373,10 @@ export const createApiClient = ({
   return {
     origin,
     timeoutMs: configuredTimeoutMs,
+
+    async listCities(options = {}) {
+      return request('listCities', `${API_V1_PREFIX}/cities`, CityListResponseSchema, options);
+    },
 
     async listProviders(options = {}) {
       return request(

@@ -82,6 +82,8 @@ export type ServiceAreaCollectionEvents = z.infer<typeof ServiceAreaCollectionEv
 export const ServiceAreaSchema = z.object({
   id: z.string().min(1),
   providerId: z.string().min(1),
+  /** Stable identity of the city, so an area is grouped by identity rather than by display text. */
+  cityId: z.string().min(1),
   locality: z.string().min(1),
   name: z.string().min(1),
   collectionEvents: ServiceAreaCollectionEventsSchema,

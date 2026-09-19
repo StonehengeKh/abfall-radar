@@ -34,4 +34,24 @@ export const koblenzSummaryMapping: SummaryMapping = new Map<string, SummaryMapp
       collectionMode: 'mobile_drop_off',
     },
   ],
+  /*
+   * The same two collections, announced separately.
+   *
+   * Verified on 2026-09-16 in the operator's `Rauental` calendar, which publishes `Schadstoffe` and
+   * `Elektrokleinteile` as two timed entries at one place rather than as the combined wording. Each is
+   * a drop-off in its own right, so each maps to its own waste type — never to both, which would
+   * announce a collection the entry does not describe.
+   */
+  [
+    'Schadstoffe',
+    { wasteTypes: ['hazardous'], timingKind: 'time_window', collectionMode: 'mobile_drop_off' },
+  ],
+  [
+    'Elektrokleinteile',
+    {
+      wasteTypes: ['small_electronics'],
+      timingKind: 'time_window',
+      collectionMode: 'mobile_drop_off',
+    },
+  ],
 ]);
