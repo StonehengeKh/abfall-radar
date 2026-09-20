@@ -99,6 +99,7 @@ describe('toServiceArea', () => {
       toServiceArea(
         {
           id: 'koblenz-stadtmitte',
+          cityId: 'koblenz',
           city: 'Koblenz',
           name: 'Stadtmitte',
           providerId: 'demo',
@@ -108,6 +109,7 @@ describe('toServiceArea', () => {
     ).toEqual({
       id: 'koblenz-stadtmitte',
       providerId: 'demo',
+      cityId: 'koblenz',
       locality: 'Koblenz',
       name: 'Stadtmitte',
       collectionEvents: UNAVAILABLE,
@@ -118,6 +120,7 @@ describe('toServiceArea', () => {
     const serviceArea = toServiceArea(
       {
         id: 'koblenz-karthause-2',
+        cityId: 'koblenz',
         city: 'Koblenz',
         name: 'Karthause 2',
         providerId: 'demo',
@@ -126,6 +129,7 @@ describe('toServiceArea', () => {
     );
 
     expect(Object.keys(serviceArea).toSorted()).toEqual([
+      'cityId',
       'collectionEvents',
       'id',
       'locality',
@@ -142,16 +146,45 @@ describe('listServiceAreas', () => {
     );
   });
 
-  it('returns the verified official area with official naming and its declared window', async () => {
-    expect(await listServiceAreas(entryOf('koblenz-servicebetrieb'))).toEqual([
-      {
-        id: 'koblenz-stadtmitte',
-        providerId: 'koblenz-servicebetrieb',
-        locality: 'Koblenz',
-        name: 'Stadtmitte',
-        collectionEvents: OFFICIAL_CAPABILITY,
-      },
-    ]);
+  it('returns every verified official area with official naming and its declared window', async () => {
+    const areas = await listServiceAreas(entryOf('koblenz-servicebetrieb'));
+
+    expect(areas).toHaveLength(34);
+    expect(areas).toContainEqual({
+      id: 'koblenz-stadtmitte',
+      providerId: 'koblenz-servicebetrieb',
+      cityId: 'koblenz',
+      locality: 'Koblenz',
+      name: 'Stadtmitte',
+      collectionEvents: OFFICIAL_CAPABILITY,
+    });
+    expect(areas).toContainEqual({
+      id: 'koblenz-neuendorf',
+      providerId: 'koblenz-servicebetrieb',
+      cityId: 'koblenz',
+      locality: 'Koblenz',
+      name: 'Neuendorf',
+      collectionEvents: OFFICIAL_CAPABILITY,
+    });
+  });
+
+  it('reports an official area without a published calendar as unavailable rather than hiding it', async () => {
+    const areas = await listServiceAreas(entryOf('koblenz-servicebetrieb'));
+    const withoutCalendar = areas.filter(
+      (area) => area.collectionEvents.availability === 'unavailable',
+    );
+
+    expect(withoutCalendar.map((area) => area.name)).toEqual(['Horchheimer Höhe']);
+    // Nothing is borrowed: it carries no zone and no window at all.
+    expect(withoutCalendar[0]?.collectionEvents).toEqual({ availability: 'unavailable' });
+  });
+
+  it('gives every official area a unique identity within the city', async () => {
+    const areas = await listServiceAreas(entryOf('koblenz-servicebetrieb'));
+    const ids = areas.map((area) => area.id);
+
+    expect(new Set(ids).size).toBe(ids.length);
+    expect(new Set(areas.map((area) => area.cityId))).toEqual(new Set(['koblenz']));
   });
 
   it('namespaces the coinciding Stadtmitte identifier by provider, and only the official one publishes a calendar', async () => {

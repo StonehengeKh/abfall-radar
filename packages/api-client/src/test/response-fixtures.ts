@@ -30,6 +30,7 @@ export const SERVICE_AREA_LIST_BODY = {
     {
       id: 'koblenz-stadtmitte',
       providerId: 'koblenz-servicebetrieb',
+      cityId: 'koblenz',
       locality: 'Koblenz',
       name: 'Stadtmitte',
       collectionEvents: AVAILABLE_CAPABILITY,

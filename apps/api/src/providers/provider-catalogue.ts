@@ -7,6 +7,7 @@ import { createKoblenzScheduleProvider } from '@abfall-radar/data-providers/node
 import type { Clock, FetchLike } from '@abfall-radar/data-providers/node';
 import type { District } from '@abfall-radar/domain';
 import type {
+  City,
   Provider,
   ProviderSourceKind,
   ServiceArea,
@@ -106,10 +107,50 @@ export const toServiceArea = (
 ): ServiceArea => ({
   id: district.id,
   providerId: district.providerId,
+  cityId: district.cityId,
   locality: district.city,
   name: district.name,
   collectionEvents,
 });
+
+/**
+ * The cities this API serves, each with the official providers behind it.
+ *
+ * Derived from the districts the providers themselves declare, so a city cannot be registered without
+ * an area to serve and the two can never drift apart. Demo providers are excluded: generated sample
+ * data is not a municipality's waste service, and the official flow must never offer it.
+ *
+ * Districts come from the provider's own local declaration, so this performs no retrieval.
+ */
+export const listCities = async (catalogue: ProviderCatalogue): Promise<City[]> => {
+  const cities = new Map<string, { name: string; providers: Provider[] }>();
+
+  for (const entry of catalogue) {
+    if (entry.sourceKind !== 'official_ics') {
+      continue;
+    }
+
+    const provider: Provider = {
+      id: entry.provider.id,
+      name: entry.provider.name,
+      sourceKind: entry.sourceKind,
+    };
+
+    for (const district of await entry.provider.getDistricts()) {
+      const city = cities.get(district.cityId) ?? { name: district.city, providers: [] };
+
+      if (!city.providers.some((candidate) => candidate.id === provider.id)) {
+        city.providers.push(provider);
+      }
+
+      cities.set(district.cityId, city);
+    }
+  }
+
+  return [...cities.entries()]
+    .map(([id, city]) => ({ id, name: city.name, providers: city.providers }))
+    .sort((left, right) => left.name.localeCompare(right.name, 'de'));
+};
 
 export const listServiceAreas = async (entry: ProviderCatalogueEntry): Promise<ServiceArea[]> => {
   const districts = await entry.provider.getDistricts();

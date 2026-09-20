@@ -98,6 +98,7 @@ export const ServiceAreaSchema = z
   .object({
     id: z.string().min(1),
     providerId: z.string().min(1),
+    cityId: z.string().min(1),
     locality: z.string().min(1),
     name: z.string().min(1),
     collectionEvents: ServiceAreaCollectionEventsSchema,
@@ -105,11 +106,12 @@ export const ServiceAreaSchema = z
   .meta({
     id: 'ServiceArea',
     description:
-      'A normalized collection area within a provider. `locality` is the town or city the area belongs to, and `collectionEvents` states whether this provider publishes an official calendar for it.',
+      'A normalized collection area within a provider. `cityId` is the stable identity of the city the area belongs to and `locality` its display name, so a client groups areas by identity rather than by matching text. `collectionEvents` states whether this provider publishes an official calendar for the area.',
     examples: [
       {
         id: 'koblenz-stadtmitte',
         providerId: 'koblenz-servicebetrieb',
+        cityId: 'koblenz',
         locality: 'Koblenz',
         name: 'Stadtmitte',
         collectionEvents: {
@@ -122,6 +124,69 @@ export const ServiceAreaSchema = z
   });
 
 export type ServiceArea = z.infer<typeof ServiceAreaSchema>;
+
+/**
+ * A city and the official providers that serve it.
+ *
+ * The smallest addition that supports choosing a city before a district: a client resolves the city
+ * first, then the providers behind it, without a provider-shaped screen when there is only one. The
+ * providers are carried here rather than looked up separately so the two can never disagree.
+ *
+ * Only official providers appear. Generated sample data is not a municipality's waste service, so a
+ * demo provider is not part of a city's catalogue.
+ */
+export const CitySchema = z
+  .object({
+    id: z.string().min(1),
+    name: z.string().min(1),
+    providers: z.array(ProviderSchema).min(1),
+  })
+  .meta({
+    id: 'City',
+    description:
+      'A city this API serves, with the official providers behind it. A city appears only when at least one official provider serves it.',
+    examples: [
+      {
+        id: 'koblenz',
+        name: 'Koblenz',
+        providers: [
+          {
+            id: 'koblenz-servicebetrieb',
+            name: 'Kommunaler Servicebetrieb',
+            sourceKind: 'official_ics',
+          },
+        ],
+      },
+    ],
+  });
+
+export type City = z.infer<typeof CitySchema>;
+
+export const CityListResponseSchema = z
+  .object({
+    data: z.array(CitySchema),
+  })
+  .meta({
+    id: 'CityListResponse',
+    description: 'The cities this API serves, each with the official providers behind it.',
+    examples: [
+      {
+        data: [
+          {
+            id: 'koblenz',
+            name: 'Koblenz',
+            providers: [
+              {
+                id: 'koblenz-servicebetrieb',
+                name: 'Kommunaler Servicebetrieb',
+                sourceKind: 'official_ics',
+              },
+            ],
+          },
+        ],
+      },
+    ],
+  });
 
 export const ProviderListResponseSchema = z
   .object({

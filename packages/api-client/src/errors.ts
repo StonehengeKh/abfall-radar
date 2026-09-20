@@ -17,7 +17,12 @@ import { z } from 'zod';
  *   unnoticed extra field travelling to a UI or a log.
  */
 
-export const OPERATIONS = ['listProviders', 'listServiceAreas', 'listCollectionEvents'] as const;
+export const OPERATIONS = [
+  'listCities',
+  'listProviders',
+  'listServiceAreas',
+  'listCollectionEvents',
+] as const;
 
 export type Operation = (typeof OPERATIONS)[number];
 

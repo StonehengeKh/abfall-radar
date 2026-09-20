@@ -139,6 +139,7 @@ describe('generated OpenAPI contract', () => {
     const document = await fetchDocument();
 
     expect(Object.keys(document.paths).toSorted()).toEqual([
+      '/api/v1/cities',
       '/api/v1/providers',
       '/api/v1/providers/{providerId}/service-areas',
       COLLECTION_EVENTS_PATH,

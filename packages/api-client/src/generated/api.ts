@@ -31,6 +31,28 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/cities": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List the cities this API serves
+         * @description Returns each city together with the official providers behind it, so a client can offer a city before a district and resolve the responsible provider without a separate lookup.
+         *
+         *     A city appears only when at least one official provider serves it. Demo providers are excluded: generated sample data is not a municipality’s waste service.
+         */
+        get: operations["listCities"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/providers": {
         parameters: {
             query?: never;
@@ -389,10 +411,11 @@ export interface components {
         /** @description Whether this provider publishes official collection events for the area. `availability` selects the variant: `available` carries the source’s zone and declared validity window, and `unavailable` carries nothing else. */
         ServiceAreaCollectionEvents: components["schemas"]["ServiceAreaCollectionEventsAvailable"] | components["schemas"]["ServiceAreaCollectionEventsUnavailable"];
         /**
-         * @description A normalized collection area within a provider. `locality` is the town or city the area belongs to, and `collectionEvents` states whether this provider publishes an official calendar for it.
+         * @description A normalized collection area within a provider. `cityId` is the stable identity of the city the area belongs to and `locality` its display name, so a client groups areas by identity rather than by matching text. `collectionEvents` states whether this provider publishes an official calendar for the area.
          * @example {
          *       "id": "koblenz-stadtmitte",
          *       "providerId": "koblenz-servicebetrieb",
+         *       "cityId": "koblenz",
          *       "locality": "Koblenz",
          *       "name": "Stadtmitte",
          *       "collectionEvents": {
@@ -408,9 +431,50 @@ export interface components {
         ServiceArea: {
             id: string;
             providerId: string;
+            cityId: string;
             locality: string;
             name: string;
             collectionEvents: components["schemas"]["ServiceAreaCollectionEvents"];
+        };
+        /**
+         * @description A city this API serves, with the official providers behind it. A city appears only when at least one official provider serves it.
+         * @example {
+         *       "id": "koblenz",
+         *       "name": "Koblenz",
+         *       "providers": [
+         *         {
+         *           "id": "koblenz-servicebetrieb",
+         *           "name": "Kommunaler Servicebetrieb",
+         *           "sourceKind": "official_ics"
+         *         }
+         *       ]
+         *     }
+         */
+        City: {
+            id: string;
+            name: string;
+            providers: components["schemas"]["Provider"][];
+        };
+        /**
+         * @description The cities this API serves, each with the official providers behind it.
+         * @example {
+         *       "data": [
+         *         {
+         *           "id": "koblenz",
+         *           "name": "Koblenz",
+         *           "providers": [
+         *             {
+         *               "id": "koblenz-servicebetrieb",
+         *               "name": "Kommunaler Servicebetrieb",
+         *               "sourceKind": "official_ics"
+         *             }
+         *           ]
+         *         }
+         *       ]
+         *     }
+         */
+        CityListResponse: {
+            data: components["schemas"]["City"][];
         };
         /**
          * @description The providers this API can serve. Only demo data is available today.
@@ -845,6 +909,35 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HealthResponse"];
+                };
+            };
+            /** @description An unexpected server error occurred. The response follows RFC 9457 and never contains stack traces, upstream payloads, or infrastructure details. Correlate `requestId` with the server logs. */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetails"];
+                };
+            };
+        };
+    };
+    listCities: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The cities this API serves, each with the official providers behind it. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CityListResponse"];
                 };
             };
             /** @description An unexpected server error occurred. The response follows RFC 9457 and never contains stack traces, upstream payloads, or infrastructure details. Correlate `requestId` with the server logs. */

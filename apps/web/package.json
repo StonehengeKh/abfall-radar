@@ -2,5 +2,38 @@
   "name": "@abfall-radar/web",
   "private": true,
   "version": "0.0.0",
-  "type": "module"
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:build-output": "vitest run --config vitest.build-output.config.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@abfall-radar/api-client": "workspace:*",
+    "@abfall-radar/domain": "workspace:*",
+    "@abfall-radar/ui": "workspace:*",
+    "lucide-react": "catalog:",
+    "react": "catalog:",
+    "react-dom": "catalog:"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "catalog:",
+    "@testing-library/jest-dom": "catalog:",
+    "@testing-library/react": "catalog:",
+    "@testing-library/user-event": "catalog:",
+    "@types/node": "catalog:",
+    "@types/react": "catalog:",
+    "@types/react-dom": "catalog:",
+    "@vitejs/plugin-react": "catalog:",
+    "jsdom": "catalog:",
+    "postcss": "catalog:",
+    "postcss-value-parser": "catalog:",
+    "tailwindcss": "catalog:",
+    "typescript": "catalog:",
+    "vite": "catalog:",
+    "vitest": "catalog:"
+  }
 }

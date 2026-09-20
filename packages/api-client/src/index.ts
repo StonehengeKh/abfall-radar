@@ -56,6 +56,10 @@ export {
   ValidationIssueSchema,
 } from './contracts/problem-details';
 export {
+  type City,
+  type CityListResponse,
+  CityListResponseSchema,
+  CitySchema,
   type Provider,
   type ProviderListResponse,
   ProviderListResponseSchema,

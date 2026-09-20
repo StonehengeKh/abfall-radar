@@ -39,24 +39,37 @@ describe('provider catalogue routes', () => {
       });
     });
 
-    it('returns the verified official service area with official naming', async () => {
+    it('returns every verified official service area with official naming', async () => {
       const response = await app.inject({ method: 'GET', url: OFFICIAL_SERVICE_AREAS_URL });
 
       expect(response.statusCode).toBe(200);
-      expect(response.json()).toEqual({
-        data: [
-          {
-            id: 'koblenz-stadtmitte',
-            providerId: 'koblenz-servicebetrieb',
-            locality: 'Koblenz',
-            name: 'Stadtmitte',
-            collectionEvents: {
-              availability: 'available',
-              timeZone: 'Europe/Berlin',
-              validity: { from: '2026-01-01', to: '2026-12-31' },
-            },
-          },
-        ],
+
+      const { data } = response.json<{ data: Record<string, unknown>[] }>();
+
+      expect(data).toHaveLength(34);
+      expect(data).toContainEqual({
+        id: 'koblenz-stadtmitte',
+        providerId: 'koblenz-servicebetrieb',
+        cityId: 'koblenz',
+        locality: 'Koblenz',
+        name: 'Stadtmitte',
+        collectionEvents: {
+          availability: 'available',
+          timeZone: 'Europe/Berlin',
+          validity: { from: '2026-01-01', to: '2026-12-31' },
+        },
+      });
+      expect(data).toContainEqual({
+        id: 'koblenz-neuendorf',
+        providerId: 'koblenz-servicebetrieb',
+        cityId: 'koblenz',
+        locality: 'Koblenz',
+        name: 'Neuendorf',
+        collectionEvents: {
+          availability: 'available',
+          timeZone: 'Europe/Berlin',
+          validity: { from: '2026-01-01', to: '2026-12-31' },
+        },
       });
     });
 
@@ -87,6 +100,7 @@ describe('provider catalogue routes', () => {
       expect(data[0]).toEqual({
         id: 'koblenz-stadtmitte',
         providerId: 'demo',
+        cityId: 'koblenz',
         locality: 'Koblenz',
         name: 'Stadtmitte',
         collectionEvents: UNAVAILABLE,
@@ -94,6 +108,7 @@ describe('provider catalogue routes', () => {
 
       for (const serviceArea of data) {
         expect(Object.keys(serviceArea).toSorted()).toEqual([
+          'cityId',
           'collectionEvents',
           'id',
           'locality',

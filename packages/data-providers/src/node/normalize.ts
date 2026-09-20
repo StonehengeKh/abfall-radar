@@ -108,25 +108,38 @@ interface NormalizedTiming {
   readonly locationName: string | null;
 }
 
+/** What may follow the area name on a curbside label: nothing, a parenthesis, or a slash-joined pair. */
+const QUALIFIER_SEPARATOR = /^(?:| \(.*\)| \/ .+)$/;
+
 const normalizeAllDay = (
   entry: CalendarEntry,
   manifest: CollectionSourceManifest,
 ): NormalizedTiming => {
   // The verified source uses `LOCATION` for two different things depending on the timing form: on a
   // curbside entry it repeats the collection-area label, while on a timed entry it names a real place to
-  // travel to. Only the first is redundant, and only exactly the first is tolerated.
+  // travel to. Only the first is redundant, and only the first is tolerated.
   //
-  // The comparison is against the manifest area name, both sides normalized the same way. An exact match
-  // is dropped, because a response already carries it as the service-area name and a curbside event has
-  // nowhere to go. Anything else — empty, whitespace-only, or a different place — fails the refresh:
-  // discarding a location the source actually means would turn "bring this somewhere" into "put the bin
-  // out", which is the one substitution this ingestion must never make silently.
+  // The label is the area name, optionally followed by the operator's own qualification of which streets
+  // the round covers: `Güls 1 (nördlich und einschließlich der Straße "Am Mühlbach")`, `Niederberg /
+  // Neudorf`. Checked across the operator's 33 published 2026 calendars, 1578 of 1578 curbside locations
+  // begin with the area name — 1128 exactly, the rest followed by ` (` or ` / ` — and one area writes it
+  // in lower case, which is why the comparison folds case.
+  //
+  // What the rule still refuses is what it was written for: a location that does **not** begin with the
+  // area name is a real place to travel to, and dropping it would turn "bring this somewhere" into "put
+  // the bin out". Every drop-off place in this source — `Kirmesplatz (Am Ufer)`, `Am Löwentor`,
+  // `Schadstoffsammelstelle` — fails that test and therefore still fails the refresh if it ever appears
+  // on a curbside entry.
   //
   // The value arrives already unwrapped from its parameters and RFC 5545 unescaped by the parser.
   if (entry.location !== undefined) {
     const label = normalizeLocationName(entry.location);
+    const areaLabel = normalizeLocationName(manifest.areaName);
+    const qualified =
+      label.toLowerCase().startsWith(areaLabel.toLowerCase()) &&
+      QUALIFIER_SEPARATOR.test(label.slice(areaLabel.length));
 
-    if (label === '' || label !== normalizeLocationName(manifest.areaName)) {
+    if (label === '' || !qualified) {
       throw new SourceFailureError('event-invalid');
     }
   }

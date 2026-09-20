@@ -562,6 +562,7 @@ describe('showReminder without a usable cache', () => {
       {
         id: OFFICIAL_AREA_ID,
         providerId: OFFICIAL_PROVIDER_ID,
+        cityId: 'koblenz',
         locality: 'Koblenz',
         name: 'Stadtmitte',
         collectionEvents,
@@ -1017,6 +1018,7 @@ describe('showReminder without a usable cache', () => {
         {
           id: 'koblenz-oberwerth',
           providerId: OFFICIAL_PROVIDER_ID,
+          cityId: 'koblenz',
           locality: 'Koblenz',
           name: 'Oberwerth',
           collectionEvents: AVAILABLE,

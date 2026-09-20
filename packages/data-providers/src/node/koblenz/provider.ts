@@ -12,7 +12,14 @@ import { type Clock, type FetchLike, systemClock, systemFetch } from '../depende
 import { normalizeCalendar } from '../normalize';
 import { retrieveCalendar } from '../retrieval';
 import { createScheduleCache } from '../source-cache';
-import { KOBLENZ_PROVIDER_ID, KOBLENZ_PROVIDER_NAME, koblenzManifests } from './manifest';
+import {
+  KOBLENZ_CITY_ID,
+  KOBLENZ_CITY_NAME,
+  KOBLENZ_PROVIDER_ID,
+  KOBLENZ_PROVIDER_NAME,
+  koblenzManifests,
+  koblenzUnavailableAreas,
+} from './manifest';
 import { koblenzSummaryMapping } from './summary-mapping';
 
 /**
@@ -31,6 +38,7 @@ export interface KoblenzProviderOptions {
 
 const toDistrict = (manifest: CollectionSourceManifest): District => ({
   id: manifest.serviceAreaId,
+  cityId: KOBLENZ_CITY_ID,
   city: manifest.locality,
   // Official naming wins. The identifier coinciding with a demo district is a consequence of the area
   // genuinely being called Stadtmitte; service areas are namespaced by provider, so the two never
@@ -38,6 +46,25 @@ const toDistrict = (manifest: CollectionSourceManifest): District => ({
   name: manifest.areaName,
   providerId: manifest.providerId,
 });
+
+/**
+ * Every official area this provider serves, in the operator's own alphabetical order.
+ *
+ * An area the operator lists but publishes no calendar for is present **without** a manifest, which is
+ * what makes the API report it as `unavailable`. Omitting it would imply the municipality does not
+ * serve it, and giving it a neighbouring area's manifest would present one district's collection days
+ * as another's.
+ */
+const koblenzDistricts: readonly District[] = [
+  ...koblenzManifests.map(toDistrict),
+  ...koblenzUnavailableAreas.map((area) => ({
+    id: `${KOBLENZ_CITY_ID}-${area.slug}`,
+    cityId: KOBLENZ_CITY_ID,
+    city: KOBLENZ_CITY_NAME,
+    name: area.areaName,
+    providerId: KOBLENZ_PROVIDER_ID,
+  })),
+].sort((left, right) => left.name.localeCompare(right.name, 'de'));
 
 export const createKoblenzScheduleProvider = ({
   fetch: fetchImpl = systemFetch,
@@ -61,7 +88,7 @@ export const createKoblenzScheduleProvider = ({
     name: KOBLENZ_PROVIDER_NAME,
 
     async getDistricts() {
-      return koblenzManifests.map(toDistrict);
+      return [...koblenzDistricts];
     },
 
     findManifest,

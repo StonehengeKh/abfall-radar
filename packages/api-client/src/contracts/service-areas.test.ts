@@ -14,6 +14,7 @@ import {
 const areaWithCapability = (collectionEvents: unknown) => ({
   id: 'koblenz-stadtmitte',
   providerId: 'koblenz-servicebetrieb',
+  cityId: 'koblenz',
   locality: 'Koblenz',
   name: 'Stadtmitte',
   collectionEvents,
@@ -134,6 +135,7 @@ describe('ServiceAreaListResponseSchema', () => {
 
     expect(Object.keys(parsed)).toEqual(['data']);
     expect(Object.keys(parsed.data[0] ?? {}).toSorted()).toEqual([
+      'cityId',
       'collectionEvents',
       'id',
       'locality',
@@ -153,6 +155,7 @@ describe('ServiceAreaListResponseSchema', () => {
       {
         id: 'a',
         providerId: 'p',
+        cityId: 'koblenz',
         locality: 'l',
         name: 4,
         collectionEvents: UNAVAILABLE_CAPABILITY,

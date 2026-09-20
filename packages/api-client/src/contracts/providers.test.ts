@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { mutableCopy, PROVIDER_LIST_BODY } from '../test/response-fixtures';
-import { ProviderListResponseSchema, ProviderSchema } from './providers';
+import { CityListResponseSchema, ProviderListResponseSchema, ProviderSchema } from './providers';
 
 describe('ProviderListResponseSchema', () => {
   it('parses the provider catalogue the API returns', () => {
@@ -43,5 +43,42 @@ describe('ProviderListResponseSchema', () => {
     const parsed = ProviderListResponseSchema.parse(PROVIDER_LIST_BODY);
 
     expect(parsed.data.map((provider) => provider.sourceKind)).toEqual(['demo', 'official_ics']);
+  });
+});
+
+describe('CityListResponseSchema', () => {
+  const koblenz = {
+    id: 'koblenz',
+    name: 'Koblenz',
+    providers: [
+      {
+        id: 'koblenz-servicebetrieb',
+        name: 'Kommunaler Servicebetrieb',
+        sourceKind: 'official_ics',
+      },
+    ],
+  };
+
+  it('parses a city with the official providers behind it', () => {
+    expect(CityListResponseSchema.parse({ data: [koblenz] })).toEqual({ data: [koblenz] });
+  });
+
+  it('strips an unknown member rather than failing an additive change', () => {
+    const parsed = CityListResponseSchema.parse({
+      data: [{ ...koblenz, population: 114_000 }],
+    });
+
+    expect(Object.keys(parsed.data[0] ?? {}).toSorted()).toEqual(['id', 'name', 'providers']);
+  });
+
+  it.each([
+    ['no providers at all', { ...koblenz, providers: [] }],
+    ['a missing name', { id: 'koblenz', providers: koblenz.providers }],
+    ['an empty identifier', { ...koblenz, id: '' }],
+    ['a provider missing its source kind', { ...koblenz, providers: [{ id: 'p', name: 'P' }] }],
+  ])('rejects a city with %s', (_reason, city) => {
+    // A city with nothing behind it describes something no surface can act on, so it is refused at the
+    // boundary rather than guarded again in every consumer.
+    expect(CityListResponseSchema.safeParse({ data: [city] }).success).toBe(false);
   });
 });

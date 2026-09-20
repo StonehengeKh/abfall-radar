@@ -18,6 +18,11 @@
       "env": ["WXT_API_BASE_URL", "WXT_RELEASE"],
       "inputs": ["$TURBO_DEFAULT$", ".env", ".env.*"]
     },
+    "@abfall-radar/web#test:build-output": {
+      "dependsOn": ["@abfall-radar/web#build"],
+      "cache": false,
+      "outputs": []
+    },
     "dev": {
       "cache": false,
       "persistent": true

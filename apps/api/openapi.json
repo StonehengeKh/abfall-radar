@@ -677,6 +677,10 @@
             "type": "string",
             "minLength": 1
           },
+          "cityId": {
+            "type": "string",
+            "minLength": 1
+          },
           "locality": {
             "type": "string",
             "minLength": 1
@@ -692,16 +696,18 @@
         "required": [
           "id",
           "providerId",
+          "cityId",
           "locality",
           "name",
           "collectionEvents"
         ],
         "additionalProperties": false,
-        "description": "A normalized collection area within a provider. `locality` is the town or city the area belongs to, and `collectionEvents` states whether this provider publishes an official calendar for it.",
+        "description": "A normalized collection area within a provider. `cityId` is the stable identity of the city the area belongs to and `locality` its display name, so a client groups areas by identity rather than by matching text. `collectionEvents` states whether this provider publishes an official calendar for the area.",
         "examples": [
           {
             "id": "koblenz-stadtmitte",
             "providerId": "koblenz-servicebetrieb",
+            "cityId": "koblenz",
             "locality": "Koblenz",
             "name": "Stadtmitte",
             "collectionEvents": {
@@ -712,6 +718,79 @@
                 "to": "2026-12-31"
               }
             }
+          }
+        ]
+      },
+      "City": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1
+          },
+          "providers": {
+            "minItems": 1,
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Provider"
+            }
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "providers"
+        ],
+        "additionalProperties": false,
+        "description": "A city this API serves, with the official providers behind it. A city appears only when at least one official provider serves it.",
+        "examples": [
+          {
+            "id": "koblenz",
+            "name": "Koblenz",
+            "providers": [
+              {
+                "id": "koblenz-servicebetrieb",
+                "name": "Kommunaler Servicebetrieb",
+                "sourceKind": "official_ics"
+              }
+            ]
+          }
+        ]
+      },
+      "CityListResponse": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/City"
+            }
+          }
+        },
+        "required": [
+          "data"
+        ],
+        "additionalProperties": false,
+        "description": "The cities this API serves, each with the official providers behind it.",
+        "examples": [
+          {
+            "data": [
+              {
+                "id": "koblenz",
+                "name": "Koblenz",
+                "providers": [
+                  {
+                    "id": "koblenz-servicebetrieb",
+                    "name": "Kommunaler Servicebetrieb",
+                    "sourceKind": "official_ics"
+                  }
+                ]
+              }
+            ]
           }
         ]
       },
@@ -1457,6 +1536,38 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/HealthResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unexpected server error occurred. The response follows RFC 9457 and never contains stack traces, upstream payloads, or infrastructure details. Correlate `requestId` with the server logs.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/cities": {
+      "get": {
+        "operationId": "listCities",
+        "summary": "List the cities this API serves",
+        "tags": [
+          "Providers"
+        ],
+        "description": "Returns each city together with the official providers behind it, so a client can offer a city before a district and resolve the responsible provider without a separate lookup.\n\nA city appears only when at least one official provider serves it. Demo providers are excluded: generated sample data is not a municipality’s waste service.",
+        "responses": {
+          "200": {
+            "description": "The cities this API serves, each with the official providers behind it.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CityListResponse"
                 }
               }
             }

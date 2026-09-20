@@ -5,18 +5,21 @@ import type { ScheduleProvider } from './provider';
 export const demoDistricts: District[] = [
   {
     id: 'koblenz-stadtmitte',
+    cityId: 'koblenz',
     city: 'Koblenz',
     name: 'Stadtmitte',
     providerId: 'demo',
   },
   {
     id: 'koblenz-metternich-1',
+    cityId: 'koblenz',
     city: 'Koblenz',
     name: 'Metternich 1',
     providerId: 'demo',
   },
   {
     id: 'koblenz-karthause-2',
+    cityId: 'koblenz',
     city: 'Koblenz',
     name: 'Karthause 2',
     providerId: 'demo',

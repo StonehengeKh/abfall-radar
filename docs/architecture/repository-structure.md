@@ -34,7 +34,14 @@ above.
 
 **It does not depend on `packages/domain`.** This package owns the wire shape and the domain owns the
 business model; neither is expressed in terms of the other. Mapping between them belongs to whichever
-consumer needs it, and stays there until a second consumer exists.
+consumer needs it, and stays there unless [the extraction rule](#when-a-mapping-becomes-shared) is
+satisfied.
+
+**A transport operation is not a product phase.** `packages/api-client` reports the real endpoint
+operation that failed; the application request owner records why that call was running and owns the
+resulting Retry transition. Product code must not rewrite the transport operation or infer Retry from
+it, a retained selection, or an identifier alone. This keeps failure translation in `api-client` and
+application state, attempt ownership, and retry policy in the consuming app.
 
 **Its types are generated and its validators are hand-written.** OpenAPI stays the canonical contract, so
 `src/generated/` is emitted from the document and never edited. Runtime validators are hand-written and
@@ -67,7 +74,7 @@ whereas an additive server field must not break an installed extension.
 | Workspace | Owns | Must not own |
 | --- | --- | --- |
 | `apps/extension` | Browser lifecycle, permissions, storage, alarms, popup composition, the worker-owned network boundary | Municipal parsing, reusable domain rules, or HTTP outside the background worker |
-| `apps/web` | Routes, web shell, PWA behavior, web feature composition | Browser extension APIs |
+| `apps/web` | Web shell and feature composition, application state, the request lifecycle, and one named web data boundary that owns every HTTP call | Browser extension APIs, municipal parsing, HTTP outside its data boundary |
 | `apps/api` | HTTP composition, persistence, jobs, provider orchestration | Product UI |
 | `apps/mobile` | Native shell and native feature composition | DOM components |
 | `packages/domain` | Schemas, models, pure business rules | Frameworks, I/O, municipality details |
@@ -83,13 +90,89 @@ flowchart LR
   Apps["apps/*"] --> UI["ui"]
   Apps --> Client["api-client"]
   Apps --> Providers["data-providers"]
-  UI --> Domain["domain"]
-  Client --> Domain
+  Apps --> Domain["domain"]
+  UI --> Domain
   Providers --> Domain
 ```
 
 Dependencies only point toward stable shared capabilities. Shared packages never import from
 `apps/*`, and domain never imports another product package.
+
+**`api-client` has no edge to `domain`, deliberately.** An application depends on both independently
+and owns the mapping between them, per [ADR 0004](../decisions/0004-extension-api-integration.md) and
+[the api-client boundary](#the-api-client-boundary) above. A diagram edge from the client to the
+domain would contradict both.
+
+## When a mapping becomes shared
+
+This section **explains and applies** the mandatory rule in
+[`docs/ai/shared-rules.md`](../ai/shared-rules.md); it does not replace it. The shared rules govern the
+repository, and nothing here — including anything labelled canonical — overrides them. The mandatory
+wording is:
+
+> Create a new shared abstraction after a real second consumer exists or when a stable domain
+> boundary already requires it.
+
+What this section supersedes is narrower: the earlier "**until** a second consumer exists"
+formulations that read the first route as the only one.
+
+**The arrival of another consumer — second, third, or any later — triggers only an explicit
+comparison and review. Consumer count never mandates extraction.** Counting is a prompt to look, not
+a verdict, and no number is a threshold. Extracting on the count alone produces packages that exist
+because arithmetic said so, and they accumulate whatever the next consumer also half-needs.
+
+**A new shared package must not be created merely because mobile, or any other consumer, now
+exists.**
+
+### The two permitted grounds
+
+Extraction is allowed on **either** ground. They are alternatives, not a conjunction, and the second
+one does **not** require a second consumer or any concrete duplication.
+
+**Ground A — demonstrated duplicated behavior that justifies a shared abstraction.** Requires all of:
+
+- **proven identical semantics** — not merely a similar shape. Trivial structural similarity is
+  insufficient, and similar-looking code alone never proves the behavior belongs in one abstraction;
+- **a stable owner** — one workspace whose responsibility the extracted thing genuinely is;
+- **an appropriate dependency direction** — the shared package must not make `api-client` depend on
+  `domain`, and no shared package may depend on `apps/*`;
+- **a meaningful reduction in duplicated policy** — a decision that two consumers must not answer
+  differently, rather than a body of code whose correctness something shared already pins.
+
+**Ground B — a stable domain boundary that already requires the abstraction**, even before a second
+consumer exists. This ground stands on the responsibility that exists **now**, so it requires:
+
+- an explanation of the **present domain responsibility** the abstraction carries, and why that
+  boundary already needs it to be one thing rather than a detail of one consumer;
+- the same **ownership and dependency-direction** constraints as Ground A.
+
+It does **not** require concrete duplication, a second consumer, or evidence about a hypothetical
+future one — asking for that evidence is what turns this ground into a dead letter.
+
+**Speculative future reuse is not a stable domain boundary.** "Mobile will probably need this" names
+a consumer that does not exist; it says nothing about a responsibility that does. The test is whether
+the boundary is already real in the domain, not whether someone might later stand on the other side
+of it.
+
+**Consumer-local adapters stay valid when consumers differ in lifecycle, failure handling,
+persistence, or presentation boundaries.** Two adapters that translate between the same two
+vocabularies but sit on boundaries with different rules are not duplication worth removing; forcing
+them together replaces a readable repetition with a parameterized abstraction that serves neither
+side well.
+
+The review point for **Ground A** is phrased once, and this is the wording:
+
+> **Re-evaluate extraction when another concrete consumer exposes proven identical behavior and a
+> stable owner.**
+
+Not on a count, not on a schedule, and not because a particular workspace has appeared. **Ground B
+needs no such trigger**: a stable domain boundary can be recognized at any time, on the strength of
+the responsibility it already carries.
+
+[ADR 0005](../decisions/0005-responsive-web-schedule.md) applies this rule and records why the browser
+extension and the web consumer each keep a consumer-local transport-to-domain adapter for that
+milestone. **A future mobile task evaluates this rule from evidence; it is not itself an extraction
+trigger.**
 
 ## Feature structure
 
