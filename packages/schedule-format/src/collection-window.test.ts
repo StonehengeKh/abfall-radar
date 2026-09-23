@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { formatCollectionWindow } from '@/src/schedule/collection-window';
+import { formatCollectionWindow } from './collection-window';
 
 const window = (startsAt: string, endsAt: string) => ({
   kind: 'time_window' as const,

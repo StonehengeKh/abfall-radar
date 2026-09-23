@@ -1,5 +1,5 @@
 import type { CollectionEvent } from '@abfall-radar/domain';
-import { compareTimestamps } from '@/src/schedule/timestamp';
+import { compareTimestamps } from './timestamp';
 
 /**
  * The total event order, applied before the next collection is chosen.

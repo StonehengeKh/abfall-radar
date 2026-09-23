@@ -1,6 +1,8 @@
 import { Loader2, RotateCcw } from 'lucide-react';
 import type { ReactNode } from 'react';
 import type { AreaCatalogueState } from '@/src/hooks/use-catalogue';
+import { useCopy } from '@/src/i18n/copy';
+import type { Messages } from '@/src/i18n/messages';
 
 /**
  * What each area-request state says, and the one control that can start another attempt.
@@ -18,17 +20,17 @@ export interface AreaStatePanelProps {
   readonly state: AreaCatalogueState;
   /** The provider the surface is currently asking about, or `null` when none is chosen. */
   readonly providerId: string | null;
+  /**
+   * How many of the loaded districts the surface actually shows.
+   *
+   * An operator can serve several cities and the surface shows only the chosen city's, so a loaded list with
+   * districts in it can still leave nothing to choose from here. That is the same answer as an empty list, and
+   * it is said the same way rather than leaving an empty section that reads as a request still running.
+   */
+  readonly shownCount: number;
   /** Starts one more attempt. Only reachable from a failed state. */
   readonly onRetry: (providerId: string) => void;
 }
-
-const LOAD_FAILED = 'Die Sammelgebiete konnten nicht geladen werden.' as const;
-
-const NOTHING_PUBLISHED =
-  'Für diesen Entsorgungsbetrieb sind derzeit keine Sammelgebiete abrufbar.' as const;
-
-const NOT_OFFERED =
-  'Dieser Entsorgungsbetrieb steht derzeit nicht zur Verfügung. Bitte wähle einen anderen.' as const;
 
 /**
  * The one statement each state makes, and it is both the visible text and the announced text.
@@ -40,7 +42,11 @@ const NOT_OFFERED =
  * The switch is exhaustive with a declared return type, so a new `AreaCatalogueState` member cannot be
  * added without deciding what it says here — the alternative being a silently empty panel.
  */
-const statusFor = (state: AreaCatalogueState): ReactNode => {
+const statusFor = (
+  state: AreaCatalogueState,
+  shownCount: number,
+  copy: Messages['districts'],
+): ReactNode => {
   switch (state.kind) {
     case 'idle':
       // Nothing has been asked, so there is nothing to report. Not a state a person needs told about.
@@ -53,18 +59,18 @@ const statusFor = (state: AreaCatalogueState): ReactNode => {
             className="animate-spin motion-reduce:animate-none"
             aria-hidden="true"
           />
-          Sammelgebiete werden geladen…
+          {copy.loading}
         </p>
       );
     case 'loaded':
       // A non-empty answer is the area list itself, which the surrounding surface renders.
-      return state.areas.length === 0 ? (
-        <p className="mt-3 text-sm text-ar-text-muted">{NOTHING_PUBLISHED}</p>
+      return shownCount === 0 ? (
+        <p className="mt-3 text-sm text-ar-text-muted">{copy.empty}</p>
       ) : null;
     case 'not_offered':
-      return <p className="mt-3 text-sm text-ar-text-muted">{NOT_OFFERED}</p>;
+      return <p className="mt-3 text-sm text-ar-text-muted">{copy.providerUnavailable}</p>;
     case 'failed':
-      return <p className="mt-3 text-sm text-ar-danger">{LOAD_FAILED}</p>;
+      return <p className="mt-3 text-sm text-ar-danger">{copy.loadFailed}</p>;
   }
 };
 
@@ -78,7 +84,8 @@ const statusFor = (state: AreaCatalogueState): ReactNode => {
 const isAbout = (state: AreaCatalogueState, providerId: string | null): boolean =>
   providerId !== null && state.kind !== 'idle' && state.providerId === providerId;
 
-export const AreaStatePanel = ({ state, providerId, onRetry }: AreaStatePanelProps) => {
+export const AreaStatePanel = ({ state, providerId, shownCount, onRetry }: AreaStatePanelProps) => {
+  const { messages } = useCopy();
   const relevant = isAbout(state, providerId);
 
   return (
@@ -93,7 +100,7 @@ export const AreaStatePanel = ({ state, providerId, onRetry }: AreaStatePanelPro
         region occupies nothing at all.
       */}
       <div role="status" aria-live="polite">
-        {relevant ? statusFor(state) : null}
+        {relevant ? statusFor(state, shownCount, messages.districts) : null}
       </div>
 
       {relevant && state.kind === 'failed' && (
@@ -101,11 +108,11 @@ export const AreaStatePanel = ({ state, providerId, onRetry }: AreaStatePanelPro
         // change would talk over the statement that actually changed.
         <button
           type="button"
-          className="mt-2 inline-flex min-h-11 items-center gap-1.5 rounded-2xl border border-ar-border bg-ar-surface px-3.5 py-2 text-sm font-semibold transition hover:border-ar-text-muted focus-visible:outline-ar-focus"
+          className="mt-2 inline-flex min-h-11 items-center gap-1.5 rounded-ar-md border border-ar-border bg-ar-surface px-3.5 py-2 text-sm font-semibold text-ar-text transition motion-reduce:transition-none hover:border-ar-text-muted focus-visible:outline-ar-focus"
           onClick={() => onRetry(state.providerId)}
         >
           <RotateCcw size={15} aria-hidden="true" />
-          Sammelgebiete erneut laden
+          {messages.districts.retry}
         </button>
       )}
     </>

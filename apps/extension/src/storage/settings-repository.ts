@@ -1,7 +1,13 @@
 import { storage } from 'wxt/utils/storage';
 import { notifySettingsChanged } from '@/src/background/settings-broadcast';
 import { describesArea, type ServiceAreaCapabilityEvidence } from '@/src/schedule/capability';
-import { type AppSettings, AppSettingsSchema, type ServiceAreaSelection } from './settings';
+import {
+  type AppSettings,
+  AppSettingsSchema,
+  type PresentationPreferences,
+  type ServiceAreaSelection,
+  type SettingsDraft,
+} from './settings';
 import { migrateSettings, shouldPersistMigration } from './settings-migration';
 
 /**
@@ -243,7 +249,11 @@ export type SettingsWriteResult =
   | { readonly outcome: 'conflict'; readonly currentSettings: AppSettings };
 
 export interface PersistSettingsInput {
-  readonly settings: AppSettings;
+  /**
+   * Everything the draft sets. Never the language or the appearance: those are written only by
+   * `persistPresentation`, so a draft opened before another window changed them cannot put the old ones back.
+   */
+  readonly settings: SettingsDraft;
   /**
    * Required whenever the selection is **new or changed**, and read from a validated response.
    *
@@ -363,10 +373,47 @@ export const persistSettings = async ({
       }
     }
 
-    await writeSettings(settings);
+    // The stored presentation preferences are kept as they are now, not as they were when the draft opened.
+    const persisted: AppSettings = {
+      ...settings,
+      locale: current.locale,
+      appearance: current.appearance,
+    };
+
+    await writeSettings(persisted);
     notifySettingsChanged();
 
-    return { outcome: 'persisted', settings };
+    return { outcome: 'persisted', settings: persisted };
+  });
+
+/**
+ * Writes the language, the appearance, or both — and nothing else.
+ *
+ * A field-level update performed **inside** the serialized queue: it reads what is stored at that moment and
+ * changes only the fields it was given, so a reminder saved from another window a moment earlier, or a
+ * selection a reminder just cleared, is never replaced by an older value. Nothing here needs a concurrency
+ * check of its own, because nothing here was read before entering the queue.
+ *
+ * A newer build's settings are refused like every other mutation's, so choosing a theme can never overwrite
+ * a version this build cannot represent.
+ */
+export const persistPresentation = async (
+  update: Partial<PresentationPreferences>,
+): Promise<AppSettings> =>
+  serializeMutation(async () => {
+    await assertMutable();
+
+    const current = await readSettingsUnqueued();
+    const persisted: AppSettings = {
+      ...current,
+      ...(update.locale === undefined ? {} : { locale: update.locale }),
+      ...(update.appearance === undefined ? {} : { appearance: update.appearance }),
+    };
+
+    await writeSettings(persisted);
+    notifySettingsChanged();
+
+    return persisted;
   });
 
 export interface PersistSelectionInput {

@@ -1,13 +1,17 @@
+import type { Locale } from '@abfall-radar/schedule-format';
 import { AlertTriangle, Loader2, RotateCcw } from 'lucide-react';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { DashboardView } from '@/src/features/dashboard/dashboard-view';
 import { NeedsSelectionView } from '@/src/features/onboarding/needs-selection-view';
 import { SettingsView } from '@/src/features/settings/settings-view';
 import { useCatalogue, verifyProvider } from '@/src/hooks/use-catalogue';
-import { useWithdrawal } from '@/src/hooks/use-withdrawal';
 import { useSchedule } from '@/src/hooks/use-schedule';
 import { useSettings } from '@/src/hooks/use-settings';
+import { useWithdrawal } from '@/src/hooks/use-withdrawal';
+import { PresentationProvider, useCopy } from '@/src/i18n/copy';
 import type { ServiceAreaSummary } from '@/src/messaging/contract';
+import { resolveSelectionCity } from '@/src/schedule/selection-city';
+import type { Appearance } from '@/src/storage/settings';
 
 /**
  * Popup composition.
@@ -20,13 +24,65 @@ import type { ServiceAreaSummary } from '@/src/messaging/contract';
  * schema-valid but its provider is only an identifier, so hydrating it, opening settings, or refreshing the
  * schedule must all wait for that confirmation. The local cache restore is the one thing that does not wait,
  * because it touches no network and the offline case is what it exists for.
+ *
+ * The language and appearance are the stored settings' own, applied to every screen including the preparing and
+ * error states. Until settings have been read they are the product defaults — German, and the device's colour
+ * scheme — rather than anything guessed.
  */
 function App() {
+  const settingsState = useSettings();
+  const { settings, savePresentation } = settingsState;
+  /**
+   * A choice from either menu. The popup shows it at once and the worker persists only that field; a refused write
+   * puts back what was shown, so nothing further is needed here than not letting the rejection go unhandled.
+   */
+  const chooseLocale = useCallback(
+    (locale: Locale) => {
+      savePresentation({ locale }).catch(() => undefined);
+    },
+    [savePresentation],
+  );
+  const chooseAppearance = useCallback(
+    (appearance: Appearance) => {
+      savePresentation({ appearance }).catch(() => undefined);
+    },
+    [savePresentation],
+  );
+
+  return (
+    <PresentationProvider
+      locale={settings.locale}
+      appearance={settings.appearance}
+      onChooseLocale={chooseLocale}
+      onChooseAppearance={chooseAppearance}
+    >
+      <Popup settingsState={settingsState} />
+    </PresentationProvider>
+  );
+}
+
+/** A full-surface statement with an icon: the preparing, unsupported, unreadable and withdrawal screens. */
+const StateScreen = ({ children }: { readonly children: ReactNode }) => (
+  <main className="grid min-h-[520px] place-items-center px-6 text-center text-ar-text">
+    <div>{children}</div>
+  </main>
+);
+
+function Popup({ settingsState }: { readonly settingsState: ReturnType<typeof useSettings> }) {
+  const { messages } = useCopy();
   const [screen, setScreen] = useState<'dashboard' | 'settings'>('dashboard');
   const { clearSelectionIfUnchanged, saveSelection, saveSettings, settings, status } =
-    useSettings();
-  const { areaState, catalogue, providers, requestAreas, retryProviders, retryAreas, forgetAreas } =
-    useCatalogue();
+    settingsState;
+  const {
+    areaStateFor,
+    catalogue,
+    cities,
+    requestAreas,
+    retryCities,
+    retryProviders,
+    retryAreas,
+    forgetAreas,
+  } = useCatalogue();
 
   /**
    * Discarding everything held for an area a successful response has withdrawn.
@@ -167,6 +223,32 @@ function App() {
   });
 
   /**
+   * The stored selection's city, derived from successful reads only — never from a display name.
+   *
+   * `pending` while anything it depends on is loading or has failed, which changes nothing: an unreachable API
+   * keeps the selection and the schedule's own Retry stays available.
+   */
+  const cityResolution = useMemo(
+    () =>
+      settings.selection === null
+        ? ({ kind: 'pending' } as const)
+        : resolveSelectionCity(settings.selection, cities, areaStateFor(storedProviderId)),
+    [settings.selection, cities, areaStateFor, storedProviderId],
+  );
+
+  /**
+   * A successful city catalogue contradicting the stored selection is handled like any other authoritative
+   * withdrawal: through the same ordered cache-then-selection sequence, never by clearing the selection here.
+   */
+  const { begin: beginWithdrawal } = withdrawal;
+
+  useEffect(() => {
+    if (cityResolution.kind === 'contradicted' && settings.selection !== null) {
+      beginWithdrawal(settings.selection);
+    }
+  }, [beginWithdrawal, cityResolution.kind, settings.selection]);
+
+  /**
    * Retries whichever read actually failed.
    *
    * The dashboard shows one retry control for every error it can render, but "the schedule failed" is three
@@ -179,6 +261,12 @@ function App() {
    * while it is unread, there is no confirmed provider to request areas for.
    */
   const retryFailedRead = useCallback(() => {
+    // The city list gates nothing the schedule needs, so a failed one is read again alongside whichever read
+    // this press is for — the place and Settings recover with the same press, whatever else failed.
+    if (cities.kind === 'failed') {
+      retryCities();
+    }
+
     if (catalogue.kind === 'failed') {
       retryProviders();
 
@@ -186,8 +274,8 @@ function App() {
     }
 
     const failedAreaProvider =
-      areaState.kind === 'failed' && areaState.providerId === storedProviderId
-        ? areaState.providerId
+      storedProviderId !== null && areaStateFor(storedProviderId).kind === 'failed'
+        ? storedProviderId
         : null;
 
     if (failedAreaProvider !== null) {
@@ -207,7 +295,16 @@ function App() {
 
     // Nothing upstream is broken, so the events request is what failed and the schedule owns that retry.
     refresh();
-  }, [areaState, catalogue.kind, refresh, retryAreas, retryProviders, storedProviderId]);
+  }, [
+    areaStateFor,
+    catalogue.kind,
+    cities.kind,
+    refresh,
+    retryAreas,
+    retryCities,
+    retryProviders,
+    storedProviderId,
+  ]);
 
   /**
    * Brings the area list in step with the stored selection, but only once the provider is confirmed.
@@ -234,8 +331,8 @@ function App() {
     return (
       <div className="grid min-h-[520px] place-items-center px-6 text-center text-sm text-ar-text-muted">
         <div>
-          <div className="mx-auto size-9 animate-pulse rounded-2xl bg-ar-brand motion-reduce:animate-none" />
-          <p className="mt-3">AbfallRadar wird vorbereitet…</p>
+          <div className="mx-auto size-9 animate-pulse rounded-ar-md bg-ar-brand motion-reduce:animate-none" />
+          <p className="mt-3">{messages.preparing}</p>
         </div>
       </div>
     );
@@ -254,17 +351,13 @@ function App() {
      * destroy data this build cannot even read, which is exactly what preserving it is for.
      */
     return (
-      <main className="grid min-h-[520px] place-items-center px-6 text-center text-ar-text">
-        <div>
-          <AlertTriangle className="mx-auto text-ar-danger" size={22} aria-hidden="true" />
-          <p className="mt-3 font-semibold">Neuere Einstellungen gefunden</p>
-          <p className="mt-1 text-sm text-ar-text-muted" role="alert">
-            Die gespeicherten Einstellungen wurden von einer neueren Version von AbfallRadar
-            erstellt. Sie bleiben unverändert erhalten. Bitte aktualisiere die Erweiterung oder lade
-            sie neu, um sie wieder zu verwenden.
-          </p>
-        </div>
-      </main>
+      <StateScreen>
+        <AlertTriangle className="mx-auto text-ar-danger" size={22} aria-hidden="true" />
+        <p className="mt-3 font-semibold">{messages.unsupportedVersion.heading}</p>
+        <p className="mt-1 text-sm text-ar-text-muted" role="alert">
+          {messages.unsupportedVersion.body}
+        </p>
+      </StateScreen>
     );
   }
 
@@ -278,16 +371,13 @@ function App() {
      * installation to someone whose chosen area is merely unreadable right now, and silently forget it.
      */
     return (
-      <main className="grid min-h-[520px] place-items-center px-6 text-center text-ar-text">
-        <div>
-          <AlertTriangle className="mx-auto text-ar-danger" size={22} aria-hidden="true" />
-          <p className="mt-3 font-semibold">Einstellungen nicht lesbar</p>
-          <p className="mt-1 text-sm text-ar-text-muted" role="alert">
-            Die gespeicherten Einstellungen konnten nicht gelesen werden. Bitte öffne AbfallRadar
-            erneut.
-          </p>
-        </div>
-      </main>
+      <StateScreen>
+        <AlertTriangle className="mx-auto text-ar-danger" size={22} aria-hidden="true" />
+        <p className="mt-3 font-semibold">{messages.unreadable.heading}</p>
+        <p className="mt-1 text-sm text-ar-text-muted" role="alert">
+          {messages.unreadable.body}
+        </p>
+      </StateScreen>
     );
   }
 
@@ -310,27 +400,22 @@ function App() {
     const stalledAtCache = withdrawal.state.kind === 'cache_failed';
 
     return (
-      <main className="grid min-h-[520px] place-items-center px-6 text-center text-ar-text">
-        <div>
-          <AlertTriangle className="mx-auto text-ar-danger" size={22} aria-hidden="true" />
-          <p className="mt-3 font-semibold">Sammelgebiet nicht mehr verfügbar</p>
-          <p className="mt-1 text-sm text-ar-text-muted" role="alert">
-            Für dieses Sammelgebiet veröffentlicht der Entsorgungsbetrieb keinen offiziellen
-            Kalender mehr.{' '}
-            {stalledAtCache
-              ? 'Das Verwerfen des gespeicherten Kalenders konnte nicht bestätigt werden, deshalb bleibt die Auswahl vorläufig erhalten.'
-              : 'Der gespeicherte Kalender wurde verworfen, die Auswahl konnte aber nicht zurückgesetzt werden.'}
-          </p>
-          <button
-            type="button"
-            className="mt-4 inline-flex min-h-11 items-center gap-1.5 rounded-2xl border border-ar-border bg-ar-surface px-3.5 py-2 text-sm font-semibold transition hover:border-ar-text-muted focus-visible:outline-ar-focus"
-            onClick={withdrawal.retry}
-          >
-            <RotateCcw size={15} aria-hidden="true" />
-            {stalledAtCache ? 'Erneut versuchen' : 'Auswahl zurücksetzen'}
-          </button>
-        </div>
-      </main>
+      <StateScreen>
+        <AlertTriangle className="mx-auto text-ar-danger" size={22} aria-hidden="true" />
+        <p className="mt-3 font-semibold">{messages.withdrawal.heading}</p>
+        <p className="mt-1 text-sm text-ar-text-muted" role="alert">
+          {messages.withdrawal.body}{' '}
+          {stalledAtCache ? messages.withdrawal.stalledAtCache : messages.withdrawal.stalledAtClear}
+        </p>
+        <button
+          type="button"
+          className="mt-4 inline-flex min-h-11 items-center gap-1.5 rounded-ar-md border border-ar-border bg-ar-surface px-3.5 py-2 text-sm font-semibold transition hover:border-ar-text-muted focus-visible:outline-ar-focus motion-reduce:transition-none"
+          onClick={withdrawal.retry}
+        >
+          <RotateCcw size={15} aria-hidden="true" />
+          {stalledAtCache ? messages.withdrawal.retry : messages.withdrawal.reset}
+        </button>
+      </StateScreen>
     );
   }
 
@@ -343,18 +428,16 @@ function App() {
      * whichever way the write resolves, the next render is onboarding or the error above.
      */
     return (
-      <main className="grid min-h-[520px] place-items-center px-6 text-center text-ar-text">
-        <div>
-          <Loader2
-            className="mx-auto animate-spin text-ar-text-muted motion-reduce:animate-none"
-            size={22}
-            aria-hidden="true"
-          />
-          <p className="mt-3 text-sm text-ar-text-muted" role="status" aria-live="polite">
-            Das gespeicherte Sammelgebiet wird zurückgesetzt…
-          </p>
-        </div>
-      </main>
+      <StateScreen>
+        <Loader2
+          className="mx-auto animate-spin text-ar-text-muted motion-reduce:animate-none"
+          size={22}
+          aria-hidden="true"
+        />
+        <p className="mt-3 text-sm text-ar-text-muted" role="status" aria-live="polite">
+          {messages.withdrawal.clearing}
+        </p>
+      </StateScreen>
     );
   }
 
@@ -373,15 +456,11 @@ function App() {
   if (settings.selection === null) {
     return (
       <NeedsSelectionView
-        providers={providers}
-        areaState={areaState}
-        isCatalogueLoading={catalogue.kind === 'loading'}
-        errorMessage={
-          catalogue.kind === 'failed'
-            ? 'Die Liste der Entsorgungsbetriebe konnte nicht geladen werden.'
-            : undefined
-        }
+        cities={cities}
+        catalogue={catalogue}
+        areaStateFor={areaStateFor}
         headingRef={onboardingHeadingRef}
+        onRetryCities={retryCities}
         onRetryCatalogue={retryProviders}
         onRequestAreas={requestAreas}
         onRetryAreas={retryAreas}
@@ -423,9 +502,13 @@ function App() {
   if (screen === 'settings') {
     return (
       <SettingsView
-        providers={providers}
-        areaState={areaState}
+        cities={cities}
+        catalogue={catalogue}
+        areaStateFor={areaStateFor}
         initialSettings={settings}
+        initialCityId={cityResolution.kind === 'resolved' ? cityResolution.city.id : null}
+        onRetryCities={retryCities}
+        onRetryCatalogue={retryProviders}
         onCancel={() => {
           // Back discards the draft and returns focus to the control that opened Settings.
           setScreen('dashboard');

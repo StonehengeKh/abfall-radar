@@ -8,12 +8,15 @@ import {
   GatewayRequestSchema,
   isSettingsRequest,
   SETTINGS_STORAGE_UNAVAILABLE,
-  SettingsChangedNotificationSchema,
   SETTINGS_UNSUPPORTED_VERSION,
+  SettingsChangedNotificationSchema,
+  type ServiceAreaSummary,
   type SettingsRequestKind,
 } from '@/src/messaging/contract';
+import { type AppSettings, defaultSettings, SETTINGS_SCHEMA_VERSION } from '@/src/storage/settings';
 import {
   invalidateSelectionIfMatches,
+  persistPresentation,
   persistSelection,
   persistSettings,
   readSettings,
@@ -21,14 +24,15 @@ import {
   UnsupportedSettingsVersionError,
   writeSettings,
 } from '@/src/storage/settings-repository';
-import { type AppSettings, defaultSettings, SETTINGS_SCHEMA_VERSION } from '@/src/storage/settings';
 import {
   AVAILABLE_AREA,
-  evidenceForArea,
   CATALOGUE_WITH_DEMO,
+  CITY_CATALOGUE,
   curbsideEvent,
+  evidenceForArea,
   MIXED_AREAS,
   OFFICIAL_AREA_ID,
+  OFFICIAL_CITY_ID,
   OFFICIAL_PROVIDER_ID,
   restoredSchedule,
   schedule,
@@ -36,6 +40,18 @@ import {
   UNAVAILABLE_AREA_ID,
 } from '@/src/test/fixtures';
 import App from './App';
+
+/**
+ * The onboarding city field, once the city list has answered.
+ *
+ * Waits for the city's own option rather than for the field: the field is on screen, disabled, before the list
+ * arrives, and choosing from it then would be choosing from nothing.
+ */
+const citySelect = async (): Promise<HTMLElement> => {
+  await screen.findByRole('option', { name: 'Koblenz' });
+
+  return screen.getByRole('combobox', { name: /Stadt/ });
+};
 
 /**
  * The popup as a whole, driven through the real message boundary.
@@ -135,6 +151,14 @@ const answerSettings = async (
 
         return { ok: true, data: { outcome: result.outcome, settings: result.settings } };
       }
+      case 'save_presentation':
+        return {
+          ok: true,
+          data: await persistPresentation({
+            ...(request.locale === undefined ? {} : { locale: request.locale }),
+            ...(request.appearance === undefined ? {} : { appearance: request.appearance }),
+          }),
+        };
     }
   } catch (error) {
     // Both of the worker's own failures, told apart the same way it tells them apart. A settings command makes
@@ -158,6 +182,20 @@ const STORED: AppSettings = {
 interface WorkerOptions {
   /** `null` means nothing trustworthy is cached, which is not a failure. */
   readonly restored?: ReturnType<typeof restoredSchedule> | null;
+  /**
+   * Replies that replace the default for a request kind — a failure, or a catalogue that contradicts the stored
+   * selection. Read on every request, so a test can change them to play the API recovering.
+   */
+  readonly answers?: Partial<Record<GatewayRequest['kind'], unknown>>;
+  /** The districts each provider publishes, for the cases where two providers must answer differently. */
+  readonly areasByProvider?: Readonly<Record<string, readonly ServiceAreaSummary[]>>;
+  /**
+   * Holds a provider's district reply until the test releases it.
+   *
+   * A reply that arrives after the surface that asked for it is gone is the case that cannot be written any
+   * other way: the request has to still be in flight while the person cancels.
+   */
+  readonly holdAreasFor?: string;
 }
 
 /**
@@ -166,8 +204,15 @@ interface WorkerOptions {
  * `browser.runtime.sendMessage` is what the default messaging client uses, so stubbing it here exercises the
  * popup's real transport rather than a hook parameter no product code passes.
  */
-const stubWorker = ({ restored = null }: WorkerOptions = {}) => {
+const stubWorker = ({
+  restored = null,
+  answers = {},
+  areasByProvider,
+  holdAreasFor,
+}: WorkerOptions = {}) => {
   const kinds: GatewayRequest['kind'][] = [];
+  /** Releases a held district reply, or `undefined` until one is held. */
+  let release: (() => void) | undefined;
   /** The validated requests themselves, for assertions about what a surface actually sent. */
   const requests: GatewayRequest[] = [];
 
@@ -198,11 +243,26 @@ const stubWorker = ({ restored = null }: WorkerOptions = {}) => {
     kinds.push(request.kind);
     requests.push(request);
 
+    if (answers[request.kind] !== undefined) {
+      return answers[request.kind];
+    }
+
     switch (request.kind) {
+      case 'list_cities':
+        return { ok: true, data: CITY_CATALOGUE };
       case 'list_providers':
         return { ok: true, data: CATALOGUE_WITH_DEMO };
-      case 'list_service_areas':
-        return { ok: true, data: MIXED_AREAS };
+      case 'list_service_areas': {
+        const areas = areasByProvider?.[request.providerId] ?? MIXED_AREAS;
+
+        if (request.providerId === holdAreasFor) {
+          await new Promise<void>((resolve) => {
+            release = resolve;
+          });
+        }
+
+        return { ok: true, data: areas };
+      }
       case 'list_collection_events':
         return {
           ok: true,
@@ -229,7 +289,14 @@ const stubWorker = ({ restored = null }: WorkerOptions = {}) => {
       (request): request is Extract<GatewayRequest, { kind: Kind }> => request.kind === kind,
     );
 
-  return { kinds, countOf, requests, sent };
+  return {
+    kinds,
+    countOf,
+    requests,
+    sent,
+    /** Lets the held district reply arrive, at the moment the test chooses. */
+    releaseAreas: () => release?.(),
+  };
 };
 
 describe('the popup with a stored selection', () => {
@@ -246,7 +313,7 @@ describe('the popup with a stored selection', () => {
 
     // Settled: no further request may follow from the renders those answers caused.
     await waitFor(() => {
-      expect(screen.getByText(/Aktuell abgerufen am/)).toBeInTheDocument();
+      expect(screen.getByTestId('provenance')).toHaveTextContent('· Aktuell');
     });
 
     expect(countOf('list_providers')).toBe(1);
@@ -263,7 +330,7 @@ describe('the popup with a stored selection', () => {
     render(<App />);
 
     await waitFor(() => {
-      expect(screen.getByText(/Aktuell abgerufen am/)).toBeInTheDocument();
+      expect(screen.getByTestId('provenance')).toHaveTextContent('· Aktuell');
     });
 
     const settled = [...kinds];
@@ -290,7 +357,7 @@ describe('the popup with a stored selection', () => {
     render(<App />);
 
     await waitFor(() => {
-      expect(screen.getByText(/Aktuell abgerufen am/)).toBeInTheDocument();
+      expect(screen.getByTestId('provenance')).toHaveTextContent('· Aktuell');
     });
 
     expect(countOf('restore_cached_schedule')).toBe(1);
@@ -336,17 +403,17 @@ describe('the popup with no stored selection', () => {
 
     render(<App />);
 
-    const select = await screen.findByRole('combobox', { name: /Entsorgungsbetrieb/ });
+    const select = await citySelect();
 
     // `selectOptions` dispatches the same change the product handles.
-    await userEvent.setup().selectOptions(select, OFFICIAL_PROVIDER_ID);
+    await userEvent.setup().selectOptions(select, OFFICIAL_CITY_ID);
 
     await waitFor(() => {
-      expect(screen.getByRole('button', { name: /Stadtmitte/ })).toBeInTheDocument();
+      expect(screen.getByRole('option', { name: /Stadtmitte/ })).toBeInTheDocument();
     });
 
     expect(countOf('list_service_areas')).toBe(1);
-    expect(screen.getByRole('button', { name: /Stadtmitte/ })).toBeEnabled();
+    expect(screen.getByRole('option', { name: /Stadtmitte/ })).toBeEnabled();
     // The area belongs to the provider that was chosen, so nothing was carried across providers.
     expect(AVAILABLE_AREA.providerId).toBe(OFFICIAL_PROVIDER_ID);
   });
@@ -443,10 +510,10 @@ describe('focus after confirming a selection', () => {
 
   /** Chooses the available area on the onboarding surface, leaving the confirm button enabled. */
   const chooseArea = async (user: ReturnType<typeof userEvent.setup>): Promise<void> => {
-    const select = await screen.findByRole('combobox', { name: /Entsorgungsbetrieb/ });
+    const select = await citySelect();
 
-    await user.selectOptions(select, OFFICIAL_PROVIDER_ID);
-    await user.click(await screen.findByRole('button', { name: /Stadtmitte/ }));
+    await user.selectOptions(select, OFFICIAL_CITY_ID);
+    await user.click(await screen.findByRole('option', { name: /Stadtmitte/ }));
   };
 
   it('moves focus to the dashboard main region', async () => {
@@ -531,7 +598,7 @@ describe('focus after confirming a selection', () => {
 
     // Schedule and cache updates keep arriving and rerendering the dashboard.
     await waitFor(() => {
-      expect(screen.getByText(/Aktuell abgerufen am/)).toBeInTheDocument();
+      expect(screen.getByTestId('provenance')).toHaveTextContent('· Aktuell');
     });
     await new Promise((resolve) => {
       setTimeout(resolve, 20);
@@ -558,6 +625,10 @@ describe('focus after confirming a selection', () => {
         return { ok: true, data: CATALOGUE_WITH_DEMO };
       }
 
+      if (request.kind === 'list_cities') {
+        return { ok: true, data: CITY_CATALOGUE };
+      }
+
       if (request.kind === 'list_service_areas') {
         return { ok: true, data: [UNAVAILABLE_AREA] };
       }
@@ -567,12 +638,12 @@ describe('focus after confirming a selection', () => {
 
     render(<App />);
 
-    const select = await screen.findByRole('combobox', { name: /Entsorgungsbetrieb/ });
+    const select = await citySelect();
 
-    await user.selectOptions(select, OFFICIAL_PROVIDER_ID);
+    await user.selectOptions(select, OFFICIAL_CITY_ID);
 
     // The unavailable area cannot be chosen at all, so confirmation stays unreachable and focus never leaves.
-    const unavailable = await screen.findByRole('button', { name: /Oberwerth/ });
+    const unavailable = await screen.findByRole('option', { name: /Oberwerth/ });
 
     expect(unavailable).toBeDisabled();
     expect(screen.getByRole('button', { name: 'Auswahl bestätigen' })).toBeDisabled();
@@ -1200,7 +1271,7 @@ describe('focus across the Settings transition', () => {
     render(<App />);
 
     await waitFor(() => {
-      expect(screen.getByText(/Aktuell abgerufen am/)).toBeInTheDocument();
+      expect(screen.getByTestId('provenance')).toHaveTextContent('· Aktuell');
     });
 
     return worker;
@@ -1263,7 +1334,11 @@ describe('focus across the Settings transition', () => {
       expect(settingsHeading()).toHaveFocus();
     });
 
-    // Back sits before the heading in the header, so it is reached by tabbing backwards from it.
+    // Back leads the header, before the appearance and language menus, so it is three stops back from the heading.
+    await user.tab({ shift: true });
+    expect(screen.getByTestId('theme-menu')).toHaveFocus();
+    await user.tab({ shift: true });
+    expect(screen.getByTestId('language-control')).toHaveFocus();
     await user.tab({ shift: true });
     expect(screen.getByRole('button', { name: 'Zurück' })).toHaveFocus();
 
@@ -1569,10 +1644,10 @@ describe('the evidence the onboarding surface sends', () => {
 
     render(<App />);
 
-    const select = await screen.findByRole('combobox', { name: /Entsorgungsbetrieb/ });
+    const select = await citySelect();
 
-    await user.selectOptions(select, OFFICIAL_PROVIDER_ID);
-    await user.click(await screen.findByRole('button', { name: /Stadtmitte/ }));
+    await user.selectOptions(select, OFFICIAL_CITY_ID);
+    await user.click(await screen.findByRole('option', { name: /Stadtmitte/ }));
     await user.click(screen.getByRole('button', { name: 'Auswahl bestätigen' }));
 
     await waitFor(() => {
@@ -1592,10 +1667,10 @@ describe('the evidence the onboarding surface sends', () => {
     stubWorker();
     render(<App />);
 
-    const select = await screen.findByRole('combobox', { name: /Entsorgungsbetrieb/ });
+    const select = await citySelect();
 
-    await user.selectOptions(select, OFFICIAL_PROVIDER_ID);
-    await user.click(await screen.findByRole('button', { name: /Stadtmitte/ }));
+    await user.selectOptions(select, OFFICIAL_CITY_ID);
+    await user.click(await screen.findByRole('option', { name: /Stadtmitte/ }));
     await user.click(screen.getByRole('button', { name: 'Auswahl bestätigen' }));
 
     await waitFor(async () => {
@@ -1776,11 +1851,8 @@ describe('the selection being cleared while Settings is open', () => {
 
     const user = userEvent.setup();
 
-    await user.selectOptions(
-      await screen.findByRole('combobox', { name: /Entsorgungsbetrieb/ }),
-      OFFICIAL_PROVIDER_ID,
-    );
-    await user.click(await screen.findByRole('button', { name: /Stadtmitte/ }));
+    await user.selectOptions(await citySelect(), OFFICIAL_CITY_ID);
+    await user.click(await screen.findByRole('option', { name: /Stadtmitte/ }));
     await user.click(screen.getByRole('button', { name: 'Auswahl bestätigen' }));
 
     // The dashboard, not Settings.
@@ -2081,5 +2153,335 @@ describe('a stalled withdrawal after the selection moves on', () => {
 
     expect(screen.getByText(WITHDRAWN_COPY)).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Erneut versuchen' })).toBeEnabled();
+  });
+});
+
+/**
+ * A saved selection is revalidated through the API, and only a successful answer can change it.
+ *
+ * The city is derived — district, then its `cityId`, then a city that lists the saved provider — so these drive
+ * the popup through each outcome: every read unreachable, only the city list unreachable, and a successful city
+ * list that no longer supports the selection.
+ */
+describe('revalidating a saved selection', () => {
+  const NETWORK = (operation: string) => ({ ok: false, failure: { kind: 'network', operation } });
+
+  it('keeps the selection while the API is unreachable, and recovers on Retry', async () => {
+    const user = userEvent.setup();
+    const answers: Partial<Record<GatewayRequest['kind'], unknown>> = {
+      list_cities: NETWORK('listCities'),
+      list_providers: NETWORK('listProviders'),
+      list_service_areas: NETWORK('listServiceAreas'),
+      list_collection_events: NETWORK('listCollectionEvents'),
+    };
+
+    await writeSettings(STORED);
+
+    const worker = stubWorker({ answers });
+
+    render(<App />);
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Die AbfallRadar-API ist nicht erreichbar.',
+    );
+    // Unreachable is not evidence: nothing is withdrawn and the stored choice is exactly as it was.
+    expect(worker.sent('invalidate_selection_if_matches')).toBeUndefined();
+    expect(worker.sent('invalidate_cached_schedule')).toBeUndefined();
+    expect((await readSettings()).selection).toEqual(STORED.selection);
+
+    // The API comes back.
+    for (const kind of Object.keys(answers) as GatewayRequest['kind'][]) {
+      delete answers[kind];
+    }
+
+    await user.click(screen.getByRole('button', { name: 'Erneut versuchen' }));
+
+    await waitFor(() => {
+      expect(screen.getByTestId('provenance')).toHaveTextContent('· Aktuell');
+    });
+    expect(screen.getByTestId('header-place')).toHaveTextContent('Koblenz · Stadtmitte');
+    // The city list failed too, and the same press read it again.
+    expect(worker.countOf('list_cities')).toBe(2);
+    expect((await readSettings()).selection).toEqual(STORED.selection);
+  });
+
+  it('shows the schedule and keeps the selection when only the city list is unreachable', async () => {
+    await writeSettings(STORED);
+
+    const worker = stubWorker({ answers: { list_cities: NETWORK('listCities') } });
+
+    render(<App />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('provenance')).toHaveTextContent('· Aktuell');
+    });
+    expect(worker.sent('invalidate_selection_if_matches')).toBeUndefined();
+    expect((await readSettings()).selection).toEqual(STORED.selection);
+  });
+
+  it('starts Settings from the derived city, never one guessed from a name', async () => {
+    const user = userEvent.setup();
+
+    await writeSettings(STORED);
+    stubWorker();
+    render(<App />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('provenance')).toHaveTextContent('· Aktuell');
+    });
+    await user.click(screen.getByRole('button', { name: 'Einstellungen öffnen' }));
+
+    expect(await screen.findByRole('combobox', { name: /Stadt/ })).toHaveValue(OFFICIAL_CITY_ID);
+    expect(screen.getByRole('option', { name: /Stadtmitte/ })).toHaveAttribute(
+      'aria-selected',
+      'true',
+    );
+  });
+
+  it.each([
+    ['no longer lists the district’s city', []],
+    [
+      'no longer lists the saved provider for that city',
+      // A city always lists at least one operator by contract, so this one lists a different one.
+      [
+        {
+          id: OFFICIAL_CITY_ID,
+          name: 'Koblenz',
+          providers: [
+            { id: 'another-operator', name: 'Anderer Betrieb', sourceKind: 'official_ics' },
+          ],
+        },
+      ],
+    ],
+  ])('withdraws the selection when a successful city list %s', async (_case, cities) => {
+    await writeSettings(STORED);
+
+    const worker = stubWorker({ answers: { list_cities: { ok: true, data: cities } } });
+
+    render(<App />);
+
+    // Through the existing recovery path: the cache is discarded first, then the selection compare-and-cleared.
+    expect(await screen.findByRole('heading', { name: 'Sammelgebiet wählen' })).toBeInTheDocument();
+    expect(worker.sent('invalidate_cached_schedule')).toBeDefined();
+    expect(worker.sent('invalidate_selection_if_matches')).toEqual({
+      kind: 'invalidate_selection_if_matches',
+      expectedSelection: STORED.selection,
+    });
+    expect((await readSettings()).selection).toBeNull();
+  });
+});
+
+/**
+ * Language and appearance are the extension's own stored preferences — not the website's, which live in a
+ * different storage context — applied to the whole popup and written through their own narrow intent.
+ */
+describe('presentation preferences', () => {
+  afterEach(() => {
+    document.documentElement.removeAttribute('data-theme');
+    document.documentElement.lang = '';
+  });
+
+  it('renders the stored language and appearance on reopening', async () => {
+    await writeSettings({ ...STORED, locale: 'uk', appearance: 'dark' });
+    stubWorker();
+    render(<App />);
+
+    expect(await screen.findByRole('heading', { name: 'Усе в полі зору' })).toBeInTheDocument();
+    expect(document.documentElement.lang).toBe('uk');
+    expect(document.documentElement.dataset.theme).toBe('dark');
+  });
+
+  it('leaves the theme to the device for the system appearance', async () => {
+    document.documentElement.setAttribute('data-theme', 'light');
+    await writeSettings(STORED);
+    stubWorker();
+    render(<App />);
+
+    await screen.findByRole('heading', { name: 'Alles im Blick' });
+    expect(document.documentElement.hasAttribute('data-theme')).toBe(false);
+  });
+
+  it('applies and stores a chosen language without touching the selection or other settings', async () => {
+    const user = userEvent.setup();
+
+    await writeSettings(STORED);
+
+    const worker = stubWorker();
+
+    render(<App />);
+
+    await screen.findByRole('heading', { name: 'Alles im Blick' });
+    await user.click(screen.getByTestId('language-control'));
+    await user.click(screen.getByRole('menuitemradio', { name: 'English' }));
+
+    expect(
+      await screen.findByRole('heading', { name: 'Everything at a glance' }),
+    ).toBeInTheDocument();
+    expect(worker.sent('save_presentation')).toEqual({ kind: 'save_presentation', locale: 'en' });
+    await waitFor(async () => {
+      expect(await readSettings()).toEqual({ ...STORED, locale: 'en' });
+    });
+  });
+
+  it('applies and stores a chosen appearance', async () => {
+    const user = userEvent.setup();
+
+    await writeSettings(STORED);
+    stubWorker();
+    render(<App />);
+
+    await screen.findByRole('heading', { name: 'Alles im Blick' });
+    await user.click(screen.getByTestId('theme-menu'));
+    await user.click(screen.getByRole('menuitemradio', { name: 'Dunkel' }));
+
+    expect(document.documentElement.dataset.theme).toBe('dark');
+    await waitFor(async () => {
+      expect((await readSettings()).appearance).toBe('dark');
+    });
+  });
+});
+
+/**
+ * A Settings session that was abandoned must leave nothing behind.
+ *
+ * Settings is transactional, and that has to hold for the **reads** a draft caused as well as for the draft
+ * itself. Exploring another city asks that city's operator for its districts; cancelling discards the draft,
+ * and the confirmed selection must still be exactly as usable as it was before — including the district list
+ * its own operator published, which is what the saved city is derived from.
+ *
+ * Driven through the production `App`, the real messaging client and the real settings repository, because
+ * the defect this covers lives in the composition: every surface behaved correctly with what it was handed.
+ */
+describe('cancelling a Settings draft that explored another city', () => {
+  const OTHER_PROVIDER = {
+    id: 'muelheim-betrieb',
+    name: 'Anderer Servicebetrieb',
+    sourceKind: 'official_ics' as const,
+  };
+  const OTHER_CITY_ID = 'muelheim';
+  const OTHER_AREA: ServiceAreaSummary = {
+    id: 'muelheim-mitte',
+    providerId: OTHER_PROVIDER.id,
+    cityId: OTHER_CITY_ID,
+    locality: 'Mülheim',
+    name: 'Mitte',
+    collectionEvents: {
+      availability: 'available',
+      timeZone: 'Europe/Berlin',
+      validity: { from: '2026-01-01', to: '2026-12-31' },
+    },
+  };
+  const TWO_CITIES = {
+    ok: true,
+    data: [
+      { id: OFFICIAL_CITY_ID, name: 'Koblenz', providers: [CATALOGUE_WITH_DEMO[1]] },
+      { id: OTHER_CITY_ID, name: 'Mülheim', providers: [OTHER_PROVIDER] },
+    ],
+  };
+  const TWO_PROVIDERS = { ok: true, data: [...CATALOGUE_WITH_DEMO, OTHER_PROVIDER] };
+  const AREAS = {
+    [OFFICIAL_PROVIDER_ID]: MIXED_AREAS,
+    [OTHER_PROVIDER.id]: [OTHER_AREA],
+  };
+
+  const twoCityWorker = (extra: Partial<WorkerOptions> = {}) =>
+    stubWorker({
+      answers: { list_cities: TWO_CITIES, list_providers: TWO_PROVIDERS },
+      areasByProvider: AREAS,
+      ...extra,
+    });
+
+  const openSettings = async (user: ReturnType<typeof userEvent.setup>) => {
+    await user.click(screen.getByRole('button', { name: 'Einstellungen öffnen' }));
+    await screen.findByRole('heading', { name: 'Einstellungen' });
+  };
+
+  const citySelect = () => screen.getByRole('combobox', { name: /Stadt/ });
+
+  /** The saved selection, as Settings must present it whenever it is opened. */
+  const expectSavedSelectionOffered = async () => {
+    await waitFor(() => {
+      expect(citySelect()).toHaveValue(OFFICIAL_CITY_ID);
+    });
+    expect(screen.getByRole('option', { name: /Stadtmitte/ })).toHaveAttribute(
+      'aria-selected',
+      'true',
+    );
+  };
+
+  const reachDashboard = async () => {
+    await writeSettings(STORED);
+    render(<App />);
+    await waitFor(() => {
+      expect(screen.getByTestId('provenance')).toBeInTheDocument();
+    });
+  };
+
+  it('offers the saved city and district again when Settings is reopened', async () => {
+    const user = userEvent.setup();
+    const worker = twoCityWorker();
+
+    await reachDashboard();
+    await openSettings(user);
+    await expectSavedSelectionOffered();
+
+    // The draft goes exploring: another city, whose own operator publishes its own districts.
+    await user.selectOptions(citySelect(), OTHER_CITY_ID);
+    expect(await screen.findByRole('option', { name: /Mitte/ })).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'Zurück' }));
+    await screen.findByTestId('provenance');
+
+    await openSettings(user);
+
+    // The abandoned draft changed nothing: the saved city is offered, with its own operator's districts.
+    await expectSavedSelectionOffered();
+    expect(screen.queryByRole('option', { name: /^Mitte$/ })).not.toBeInTheDocument();
+    expect((await readSettings()).selection).toEqual(STORED.selection);
+    expect(worker.sent('save_settings')).toBeUndefined();
+  });
+
+  it('is unaffected by the abandoned request answering afterwards', async () => {
+    const user = userEvent.setup();
+    const worker = twoCityWorker({ holdAreasFor: OTHER_PROVIDER.id });
+
+    await reachDashboard();
+    await openSettings(user);
+    await expectSavedSelectionOffered();
+
+    // The other operator's districts are still in flight when the draft is abandoned.
+    await user.selectOptions(citySelect(), OTHER_CITY_ID);
+    await waitFor(() => {
+      expect(worker.countOf('list_service_areas')).toBeGreaterThan(1);
+    });
+    await user.click(screen.getByRole('button', { name: 'Zurück' }));
+    await screen.findByTestId('provenance');
+
+    // It answers now, for a question nobody is waiting on any more.
+    await act(async () => {
+      worker.releaseAreas();
+    });
+
+    await openSettings(user);
+    await expectSavedSelectionOffered();
+    expect(screen.queryByRole('option', { name: /^Mitte$/ })).not.toBeInTheDocument();
+    expect((await readSettings()).selection).toEqual(STORED.selection);
+  });
+
+  it('keeps the schedule and the derived place while a draft explores another city', async () => {
+    const user = userEvent.setup();
+
+    twoCityWorker();
+
+    await reachDashboard();
+    await openSettings(user);
+    await user.selectOptions(citySelect(), OTHER_CITY_ID);
+    await screen.findByRole('option', { name: /Mitte/ });
+    await user.click(screen.getByRole('button', { name: 'Zurück' }));
+
+    // The dashboard is derived from the confirmed selection, which the draft never touched.
+    await waitFor(() => {
+      expect(screen.getByTestId('header-place')).toHaveTextContent('Koblenz · Stadtmitte');
+    });
   });
 });

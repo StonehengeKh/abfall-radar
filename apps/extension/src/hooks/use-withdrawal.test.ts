@@ -73,6 +73,10 @@ const renderWithdrawal = () => {
 
   const client: MessagingClient = {
     ...settingsOperationsRefused,
+    listCities: async () => ({ ok: true as const, data: [] }),
+    savePresentation: async () => {
+      throw new Error('savePresentation is not used by this test');
+    },
     listProviders: async () => ({ ok: true, data: [] }),
     listServiceAreas: async () => ({ ok: true, data: [] }),
     listCollectionEvents: async () => {
@@ -581,6 +585,10 @@ describe('a completion from a superseded withdrawal', () => {
 
     const client: MessagingClient = {
       ...settingsOperationsRefused,
+      listCities: async () => ({ ok: true as const, data: [] }),
+      savePresentation: async () => {
+        throw new Error('savePresentation is not used by this test');
+      },
       listProviders: async () => ({ ok: true, data: [] }),
       listServiceAreas: async () => ({ ok: true, data: [] }),
       listCollectionEvents: async () => {

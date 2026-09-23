@@ -1,11 +1,14 @@
 import type {
   ApiClient,
   ApiFailure,
+  CityListResponse,
   CollectionEventListResponse,
   ProviderListResponse,
   ServiceAreaListResponse,
 } from '@abfall-radar/api-client';
 import {
+  CACHE_STORAGE_UNAVAILABLE,
+  type CitySummary,
   type CollectionEventsPayload,
   type GatewayFailure,
   type GatewayRequest,
@@ -13,11 +16,10 @@ import {
   type GatewayResponse,
   isSettingsRequest,
   type ProviderSummary,
-  CACHE_STORAGE_UNAVAILABLE,
-  SETTINGS_STORAGE_UNAVAILABLE,
-  SETTINGS_UNSUPPORTED_VERSION,
   type RestoredSchedulePayload,
   type SchedulePayload,
+  SETTINGS_STORAGE_UNAVAILABLE,
+  SETTINGS_UNSUPPORTED_VERSION,
   type ServiceAreaSummary,
   type SettingsRequestKind,
   UNSUPPORTED_MESSAGE,
@@ -40,6 +42,7 @@ import {
 import { type AppSettings, SETTINGS_SCHEMA_VERSION } from '@/src/storage/settings';
 import {
   invalidateSelectionIfMatches,
+  persistPresentation,
   persistSelection,
   persistSettings,
   readSettingsState,
@@ -98,6 +101,7 @@ export interface Gateway {
    * failure translation, the same cache write and the same coalescing. Nothing here is a second implementation
    * for the worker's own benefit.
    */
+  listCities(): Promise<GatewayResult<CitySummary[]>>;
   listProviders(): Promise<GatewayResult<ProviderSummary[]>>;
   listServiceAreas(providerId: string): Promise<GatewayResult<ServiceAreaSummary[]>>;
   listCollectionEvents(request: {
@@ -162,10 +166,22 @@ const toProviderSummaries = (response: ProviderListResponse): ProviderSummary[] 
     sourceKind: provider.sourceKind,
   }));
 
+const toCitySummaries = (response: CityListResponse): CitySummary[] =>
+  response.data.map((city) => ({
+    id: city.id,
+    name: city.name,
+    providers: city.providers.map((provider) => ({
+      id: provider.id,
+      name: provider.name,
+      sourceKind: provider.sourceKind,
+    })),
+  }));
+
 const toServiceAreaSummaries = (response: ServiceAreaListResponse): ServiceAreaSummary[] =>
   response.data.map((area) => ({
     id: area.id,
     providerId: area.providerId,
+    cityId: area.cityId,
     locality: area.locality,
     name: area.name,
     collectionEvents:
@@ -308,6 +324,7 @@ export const createGateway = ({
    * Typed per operation, so no cast is needed to get a result back out — a single `Map<string, Promise<unknown>>`
    * could only be read by asserting what came out of it.
    */
+  const cityFlights = new Map<string, Promise<GatewayResult<CitySummary[]>>>();
   const providerFlights = new Map<string, Promise<GatewayResult<ProviderSummary[]>>>();
 
   const serviceAreaFlights = new Map<string, Promise<GatewayResult<ServiceAreaSummary[]>>>();
@@ -704,6 +721,20 @@ export const createGateway = ({
    * public methods hand them back directly, so the transport call, the failure translation, the cache write
    * and the generation check are written once and cannot drift between the popup's path and the worker's own.
    */
+  const readCities = async (): Promise<GatewayResult<CitySummary[]>> => {
+    const result = await client.listCities();
+
+    if (!result.ok) {
+      const failure = toGatewayFailure(result.failure);
+
+      logFailure(logger, failure);
+
+      return { ok: false, failure };
+    }
+
+    return { ok: true, data: toCitySummaries(result.data) };
+  };
+
   const readProviders = async (): Promise<GatewayResult<ProviderSummary[]>> => {
     const result = await client.listProviders();
 
@@ -814,6 +845,9 @@ export const createGateway = ({
    * that changes the answer. A different provider, area, or range is a different question and gets its own
    * request — which is why the range is part of the collection-events key rather than only the area.
    */
+  const listCities = (): Promise<GatewayResult<CitySummary[]>> =>
+    coalesce(cityFlights, 'list_cities', readCities);
+
   const listProviders = (): Promise<GatewayResult<ProviderSummary[]>> =>
     coalesce(providerFlights, 'list_providers', readProviders);
 
@@ -942,6 +976,19 @@ export const createGateway = ({
           };
         }
 
+        case 'save_presentation': {
+          /**
+           * Only the named preferences, applied inside the repository's serialized operation to what is stored
+           * at that moment — so nothing observed before this request was sent can be written back.
+           */
+          const settings = await persistPresentation({
+            ...(request.locale === undefined ? {} : { locale: request.locale }),
+            ...(request.appearance === undefined ? {} : { appearance: request.appearance }),
+          });
+
+          return { ok: true, data: settings };
+        }
+
         case 'invalidate_selection_if_matches': {
           const result = await invalidateSelectionIfMatches(request.expectedSelection);
 
@@ -980,6 +1027,9 @@ export const createGateway = ({
     }
 
     switch (request.kind) {
+      case 'list_cities':
+        return listCities();
+
       case 'list_providers':
         return listProviders();
 
@@ -1017,6 +1067,7 @@ export const createGateway = ({
   };
 
   return {
+    listCities,
     listProviders,
     listServiceAreas,
     listCollectionEvents,
@@ -1083,6 +1134,8 @@ export const createGateway = ({
  */
 const operationOf = (request: GatewayRequest) => {
   switch (request.kind) {
+    case 'list_cities':
+      return 'listCities' as const;
     case 'list_providers':
       return 'listProviders' as const;
     case 'list_service_areas':
@@ -1094,6 +1147,7 @@ const operationOf = (request: GatewayRequest) => {
     case 'read_settings':
     case 'select_service_area':
     case 'save_settings':
+    case 'save_presentation':
     case 'invalidate_selection_if_matches':
       /**
        * Unreachable: a settings intent performs no HTTP request, so it never reaches the last-resort handler that

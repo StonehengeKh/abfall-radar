@@ -25,10 +25,14 @@ describe('a drop-off window formatted on a device east of the source', () => {
 
   it('states Berlin standard time, not the device’s', () => {
     // Tokyo is UTC+9, so a device-zone rendering of these instants would say 18:00–20:00.
-    expect(formatCollectionWindow(BERLIN_WINTER_WINDOW)).toBe('10:00–12:00 (Europe/Berlin)');
+    expect(formatCollectionWindow(BERLIN_WINTER_WINDOW)?.text).toBe(
+      '10:00 UTC+01:00–12:00 UTC+01:00 (Europe/Berlin)',
+    );
   });
 
   it('states Berlin summer time, not the device’s', () => {
-    expect(formatCollectionWindow(BERLIN_SUMMER_WINDOW)).toBe('11:00–13:00 (Europe/Berlin)');
+    expect(formatCollectionWindow(BERLIN_SUMMER_WINDOW)?.text).toBe(
+      '11:00 UTC+02:00–13:00 UTC+02:00 (Europe/Berlin)',
+    );
   });
 });

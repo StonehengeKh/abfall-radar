@@ -254,13 +254,49 @@ describe('the settings commands', () => {
   } as const;
 
   const SETTINGS = {
-    version: 2,
+    version: 3,
     selection: SELECTION,
     remindersEnabled: true,
     reminderDaysBefore: 1,
     reminderTime: '18:00',
     visibleWasteTypes: ['paper'],
+    locale: 'de',
+    appearance: 'system',
   } as const;
+
+  it('sends only the named presentation change, never a settings snapshot', async () => {
+    const { client, send } = clientWith({ ok: true, data: { ...SETTINGS, appearance: 'dark' } });
+
+    const result = await client.savePresentation({ appearance: 'dark' });
+
+    // No selection, no reminders, no expected state: nothing observed earlier travels with the change.
+    expect(send).toHaveBeenCalledWith({ kind: 'save_presentation', appearance: 'dark' });
+    expect(result).toEqual({ ok: true, data: { ...SETTINGS, appearance: 'dark' } });
+  });
+
+  it('asks for the city catalogue with the city read', async () => {
+    const { client, send } = clientWith({
+      ok: true,
+      data: [
+        {
+          id: 'koblenz',
+          name: 'Koblenz',
+          providers: [
+            {
+              id: OFFICIAL_PROVIDER_ID,
+              name: 'Kommunaler Servicebetrieb',
+              sourceKind: 'official_ics',
+            },
+          ],
+        },
+      ],
+    });
+
+    const result = await client.listCities();
+
+    expect(send).toHaveBeenCalledWith({ kind: 'list_cities' });
+    expect(result.ok && result.data.map((city) => city.id)).toEqual(['koblenz']);
+  });
 
   it('sends the draft premise with a save, so a stale draft can be refused', async () => {
     const { client, send } = clientWith({

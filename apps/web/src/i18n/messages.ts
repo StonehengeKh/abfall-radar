@@ -1,9 +1,11 @@
-import type { WasteType } from '@abfall-radar/domain';
+import { SCHEDULE_MESSAGES, type ScheduleMessages } from '@abfall-radar/schedule-format';
 import type { Locale } from '@/src/i18n/locale';
 import type { AppViewKind } from '@/src/schedule/view-state';
 
 /**
- * Every application-owned string, in each supported locale.
+ * Every string the web application owns, in each supported locale. The copy it shares with the
+ * extension — waste names, the countdown, window wording, source details — is in
+ * `@abfall-radar/schedule-format` and composed in below.
  *
  * Typed rather than looked up by free-form key: `Messages` is exhaustive over the view-state union, the
  * renderable failure kinds, and the waste vocabulary, so adding a state or a waste type without copy is
@@ -25,8 +27,7 @@ export interface StateMessages {
   readonly announcement: string;
 }
 
-export interface Messages {
-  readonly languageName: string;
+export interface WebMessages {
   readonly states: Record<AppViewKind, StateMessages>;
   readonly failures: Record<
     'network' | 'timeout' | 'invalid_response' | 'problem' | 'source_date_unavailable',
@@ -58,30 +59,12 @@ export interface Messages {
     readonly noneSelected: string;
   };
   readonly actions: Record<'back' | 'changeSelection' | 'retry' | 'confirm', string>;
-  readonly provenance: {
-    readonly heading: string;
-    readonly openSource: string;
-    readonly retrieved: string;
-    readonly fresh: string;
-    readonly stale: string;
-    readonly shownPeriod: string;
-    readonly publishedWasteTypes: string;
-    readonly nextCollection: string;
-    readonly details: string;
-  };
   readonly diagnostics: {
     readonly identifier: string;
     readonly recoveryIdentifier: string;
     readonly rangeIdentifier: string;
     readonly lastRecoveryFailed: string;
   };
-  readonly appearance: {
-    readonly label: string;
-    readonly light: string;
-    readonly dark: string;
-    readonly system: string;
-  };
-  readonly language: { readonly label: string };
   /**
    * The page footer.
    *
@@ -91,54 +74,27 @@ export interface Messages {
   readonly footer: {
     readonly description: (city: string | null) => string;
     readonly backToTop: string;
-  };
-  /** The days-remaining badge and the district search, both of which show a count or a query. */
+  } /** The district search, which shows a query and a count. */;
   readonly schedule: {
-    readonly today: string;
-    /**
-     * The status of an all-day collection whose day has arrived.
-     *
-     * A calendar statement about the day, not a report on a vehicle: the source publishes the date and
-     * no time, so nothing here may imply a start, a progress share, or a completion.
-     */
-    readonly inProgress: string;
     readonly searchDistricts: string;
     readonly districtCount: (shown: number, total: number) => string;
     readonly noMatches: string;
   };
-  /**
-   * The countdown panel.
-   *
-   * `untilDayStarts` is the honest caption for a date-only collection: the source publishes no pickup
-   * time, so what is being counted is the beginning of the collection day, not the collection.
-   */
-  readonly countdown: {
-    readonly heading: string;
-    readonly untilStart: string;
-    readonly untilDayStarts: string;
-    /** Said when the schedule holds nothing further — never a zero, a negative, or an invented date. */
-    readonly noFurtherDates: string;
-    /** No `days` label: that one agrees with its number, so `dayUnitLabel` produces it from `Intl`. */
-    readonly hours: string;
-    readonly minutes: string;
-  };
-  /**
-   * The connector words of a spoken drop-off window.
-   *
-   * Only the words are localized. The numbers, the offsets, and the zone identifier are composed from
-   * `Intl` parts in a fixed order, so no locale can reorder a time into a different one.
-   */
-  readonly window: {
-    readonly from: string;
-    readonly to: string;
-    readonly oClock: string;
-    readonly timeZone: string;
-  };
-  readonly waste: Record<WasteType, string>;
 }
 
-const de: Messages = {
-  languageName: 'Deutsch',
+/**
+ * Everything the web application renders: the shared schedule copy and the web's own, as one value.
+ *
+ * `schedule` is the one section both sides write to — the shared collection-day words and the web's
+ * district search — so it is merged rather than replaced, which keeps every existing lookup such as
+ * `messages.schedule.inProgress` exactly as it was.
+ */
+export type Messages = Omit<ScheduleMessages, 'schedule'> &
+  Omit<WebMessages, 'schedule'> & {
+    readonly schedule: ScheduleMessages['schedule'] & WebMessages['schedule'];
+  };
+
+const de: WebMessages = {
   states: {
     configuration_error: {
       heading: 'AbfallRadar kann den Dienst von dieser Seite aus nicht sicher erreichen',
@@ -227,60 +183,25 @@ const de: Messages = {
     retry: 'Erneut versuchen',
     confirm: 'Auswahl bestätigen',
   },
-  provenance: {
-    heading: 'Quelle',
-    openSource: 'Quelle öffnen',
-    retrieved: 'Abgerufen',
-    fresh: 'Aktuell',
-    stale: 'Quelle meldet veraltete Daten',
-    shownPeriod: 'Angezeigter Zeitraum',
-    publishedWasteTypes: 'Veröffentlichte Abfallarten',
-    nextCollection: 'Nächste Abfuhr',
-    details: 'Quelle und Details',
-  },
   diagnostics: {
     identifier: 'Kennung',
     recoveryIdentifier: 'Kennung der Aktualisierung',
     rangeIdentifier: 'Kennung der ersten Zeitraum-Antwort',
     lastRecoveryFailed: 'Letzte Aktualisierung fehlgeschlagen',
   },
-  appearance: { label: 'Darstellung', light: 'Hell', dark: 'Dunkel', system: 'System' },
-  language: { label: 'Sprache' },
   footer: {
     description: (city) =>
       city === null ? 'Offizielle Abfuhrtermine' : `Abfuhrtermine für ${city}`,
     backToTop: 'Nach oben',
   },
   schedule: {
-    today: 'Heute',
-    inProgress: 'Abholung läuft',
     searchDistricts: 'Gebiet suchen',
     districtCount: (shown, total) => `Gebiete: ${shown} von ${total}`,
     noMatches: 'Kein Gebiet gefunden.',
   },
-  countdown: {
-    heading: 'Countdown',
-    untilStart: 'bis zur Abholung',
-    untilDayStarts: 'bis der Abfuhrtag beginnt',
-    noFurtherDates: 'Keine weiteren Abfuhrtermine veröffentlicht',
-    hours: 'Std.',
-    minutes: 'Min.',
-  },
-  window: { from: 'Von', to: 'bis', oClock: 'Uhr', timeZone: 'Zeitzone' },
-  waste: {
-    residual: 'Restabfall',
-    bio: 'Biotonne',
-    paper: 'Altpapier',
-    yellow_bag: 'Gelber Sack',
-    green_waste: 'Grünschnitt',
-    christmas_tree: 'Weihnachtsbaum',
-    hazardous: 'Schadstoffe',
-    small_electronics: 'Elektrokleinteile',
-  },
 };
 
-const en: Messages = {
-  languageName: 'English',
+const en: WebMessages = {
   states: {
     configuration_error: {
       heading: 'AbfallRadar cannot reach the service securely from this page',
@@ -369,60 +290,25 @@ const en: Messages = {
     retry: 'Try again',
     confirm: 'Confirm selection',
   },
-  provenance: {
-    heading: 'Source',
-    openSource: 'Open source page',
-    retrieved: 'Retrieved',
-    fresh: 'Current',
-    stale: 'Source reports stale data',
-    shownPeriod: 'Period shown',
-    publishedWasteTypes: 'Published waste types',
-    nextCollection: 'Next collection',
-    details: 'Source and details',
-  },
   diagnostics: {
     identifier: 'Reference',
     recoveryIdentifier: 'Refresh reference',
     rangeIdentifier: 'Reference of the first period response',
     lastRecoveryFailed: 'Last refresh failed',
   },
-  appearance: { label: 'Appearance', light: 'Light', dark: 'Dark', system: 'System' },
-  language: { label: 'Language' },
   footer: {
     description: (city) =>
       city === null ? 'Official collection dates' : `Collection dates for ${city}`,
     backToTop: 'Back to top',
   },
   schedule: {
-    today: 'Today',
-    inProgress: 'In progress',
     searchDistricts: 'Search districts',
     districtCount: (shown, total) => `Districts: ${shown} of ${total}`,
     noMatches: 'No district found.',
   },
-  countdown: {
-    heading: 'Countdown',
-    untilStart: 'until the collection',
-    untilDayStarts: 'until the collection day starts',
-    noFurtherDates: 'No further collection dates published',
-    hours: 'hrs',
-    minutes: 'min',
-  },
-  window: { from: 'From', to: 'to', oClock: '', timeZone: 'Time zone' },
-  waste: {
-    residual: 'Residual waste',
-    bio: 'Organic waste',
-    paper: 'Paper',
-    yellow_bag: 'Yellow bag',
-    green_waste: 'Garden waste',
-    christmas_tree: 'Christmas tree',
-    hazardous: 'Hazardous waste',
-    small_electronics: 'Small electronics',
-  },
 };
 
-const uk: Messages = {
-  languageName: 'Українська',
+const uk: WebMessages = {
   states: {
     configuration_error: {
       heading: 'AbfallRadar не може безпечно звернутися до служби з цієї сторінки',
@@ -509,60 +395,25 @@ const uk: Messages = {
     retry: 'Спробувати ще раз',
     confirm: 'Підтвердити вибір',
   },
-  provenance: {
-    heading: 'Джерело',
-    openSource: 'Відкрити джерело',
-    retrieved: 'Отримано',
-    fresh: 'Актуально',
-    stale: 'Джерело повідомляє про застарілі дані',
-    shownPeriod: 'Показаний період',
-    publishedWasteTypes: 'Опубліковані типи відходів',
-    nextCollection: 'Найближче вивезення',
-    details: 'Джерело та деталі',
-  },
   diagnostics: {
     identifier: 'Ідентифікатор',
     recoveryIdentifier: 'Ідентифікатор оновлення',
     rangeIdentifier: 'Ідентифікатор першої відповіді про період',
     lastRecoveryFailed: 'Останнє оновлення не вдалося',
   },
-  appearance: { label: 'Оформлення', light: 'Світле', dark: 'Темне', system: 'Системне' },
-  language: { label: 'Мова' },
   footer: {
     description: (city) =>
       city === null ? 'Офіційні дати вивезення' : `Дати вивезення для міста ${city}`,
     backToTop: 'Догори',
   },
   schedule: {
-    today: 'Сьогодні',
-    inProgress: 'Вивезення триває',
     searchDistricts: 'Пошук району',
     districtCount: (shown, total) => `Районів: ${shown} з ${total}`,
     noMatches: 'Район не знайдено.',
   },
-  countdown: {
-    heading: 'Зворотний відлік',
-    untilStart: 'до вивезення',
-    untilDayStarts: 'до початку дня вивезення',
-    noFurtherDates: 'Подальші дати вивезення не опубліковані',
-    hours: 'год',
-    minutes: 'хв',
-  },
-  window: { from: 'Від', to: 'до', oClock: '', timeZone: 'Часовий пояс' },
-  waste: {
-    residual: 'Змішані відходи',
-    bio: 'Органічні відходи',
-    paper: 'Папір',
-    yellow_bag: 'Жовтий мішок',
-    green_waste: 'Садові відходи',
-    christmas_tree: 'Ялинка',
-    hazardous: 'Небезпечні відходи',
-    small_electronics: 'Дрібна електроніка',
-  },
 };
 
-const ru: Messages = {
-  languageName: 'Русский',
+const ru: WebMessages = {
   states: {
     configuration_error: {
       heading: 'AbfallRadar не может безопасно обратиться к службе с этой страницы',
@@ -649,56 +500,33 @@ const ru: Messages = {
     retry: 'Попробовать ещё раз',
     confirm: 'Подтвердить выбор',
   },
-  provenance: {
-    heading: 'Источник',
-    openSource: 'Открыть источник',
-    retrieved: 'Получено',
-    fresh: 'Актуально',
-    stale: 'Источник сообщает об устаревших данных',
-    shownPeriod: 'Показанный период',
-    publishedWasteTypes: 'Опубликованные типы отходов',
-    nextCollection: 'Ближайший вывоз',
-    details: 'Источник и подробности',
-  },
   diagnostics: {
     identifier: 'Идентификатор',
     recoveryIdentifier: 'Идентификатор обновления',
     rangeIdentifier: 'Идентификатор первого ответа о периоде',
     lastRecoveryFailed: 'Последнее обновление не удалось',
   },
-  appearance: { label: 'Оформление', light: 'Светлое', dark: 'Тёмное', system: 'Системное' },
-  language: { label: 'Язык' },
   footer: {
     description: (city) =>
       city === null ? 'Официальные даты вывоза' : `Даты вывоза для города ${city}`,
     backToTop: 'Наверх',
   },
   schedule: {
-    today: 'Сегодня',
-    inProgress: 'В процессе',
     searchDistricts: 'Поиск района',
     districtCount: (shown, total) => `Районов: ${shown} из ${total}`,
     noMatches: 'Район не найден.',
   },
-  countdown: {
-    heading: 'Обратный отсчёт',
-    untilStart: 'до вывоза',
-    untilDayStarts: 'до начала дня вывоза',
-    noFurtherDates: 'Дальнейшие даты вывоза не опубликованы',
-    hours: 'ч',
-    minutes: 'мин',
-  },
-  window: { from: 'С', to: 'до', oClock: '', timeZone: 'Часовой пояс' },
-  waste: {
-    residual: 'Смешанные отходы',
-    bio: 'Органические отходы',
-    paper: 'Бумага',
-    yellow_bag: 'Жёлтый мешок',
-    green_waste: 'Садовые отходы',
-    christmas_tree: 'Ёлка',
-    hazardous: 'Опасные отходы',
-    small_electronics: 'Мелкая электроника',
-  },
 };
 
-export const MESSAGES: Record<Locale, Messages> = { de, en, uk, ru };
+const compose = (locale: Locale, own: WebMessages): Messages => {
+  const shared = SCHEDULE_MESSAGES[locale];
+
+  return { ...shared, ...own, schedule: { ...shared.schedule, ...own.schedule } };
+};
+
+export const MESSAGES: Record<Locale, Messages> = {
+  de: compose('de', de),
+  en: compose('en', en),
+  uk: compose('uk', uk),
+  ru: compose('ru', ru),
+};

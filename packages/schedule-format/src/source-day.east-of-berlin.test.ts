@@ -10,8 +10,8 @@ process.env.TZ = 'Asia/Tokyo';
 export {};
 
 const { describe, expect, it } = await import('vitest');
-const { deriveSourceToday, relativeDayLabel } = await import('@/src/schedule/source-day');
-const { formatCollectionWindow } = await import('@/src/schedule/collection-window');
+const { deriveSourceToday, relativeDayLabel } = await import('./source-day');
+const { formatCollectionWindow } = await import('./collection-window');
 
 describe('source-local calendar days on a device pinned to Asia/Tokyo', () => {
   it('runs on the pinned device zone, so the assertions are not vacuous', () => {

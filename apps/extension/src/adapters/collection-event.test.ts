@@ -1,9 +1,9 @@
+import { CollectionEventSchema as TransportCollectionEventSchema } from '@abfall-radar/api-client';
 import {
   CollectionEventSchema,
   getRelativeDateLabel,
   getUpcomingEvents,
 } from '@abfall-radar/domain';
-import { CollectionEventSchema as TransportCollectionEventSchema } from '@abfall-radar/api-client';
 import { describe, expect, it } from 'vitest';
 import type { CollectionEventPayload } from '@/src/messaging/contract';
 import { curbsideEvent, mobileDropOffEvent } from '@/src/test/fixtures';

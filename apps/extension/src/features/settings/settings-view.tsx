@@ -1,16 +1,18 @@
-import { type WasteType, wasteLabels } from '@abfall-radar/domain';
-import { ArrowLeft, BellRing, Check, Clock3, MapPin } from 'lucide-react';
-import { type Ref, useEffect, useId, useState } from 'react';
-import { AreaStatePanel } from '@/src/features/areas/area-state-panel';
+import type { WasteType } from '@abfall-radar/domain';
+import { ArrowLeft, BellRing, Check, Clock3 } from 'lucide-react';
+import { type Ref, useId, useState } from 'react';
+import { AreaPicker } from '@/src/features/selection/area-picker';
+import { PopupHeader } from '@/src/features/shell/popup-header';
 import {
   type AreaCatalogueState,
-  areaStateProviderId,
   areasOf,
-  offerableProviders,
+  type CityCatalogueState,
+  type ProviderCatalogueState,
 } from '@/src/hooks/use-catalogue';
-import type { ProviderSummary, ServiceAreaSummary } from '@/src/messaging/contract';
+import { useCopy } from '@/src/i18n/copy';
+import type { ServiceAreaSummary } from '@/src/messaging/contract';
 import type { ServiceAreaCapabilityEvidence } from '@/src/schedule/capability';
-import type { AppSettings, ServiceAreaSelection } from '@/src/storage/settings';
+import type { ServiceAreaSelection, SettingsDraft } from '@/src/storage/settings';
 
 /**
  * Settings is transactional.
@@ -37,7 +39,11 @@ export type SettingsSaveOutcome =
   | 'rejected_unknown_capability';
 
 export interface SettingsSaveInput {
-  readonly settings: AppSettings;
+  /**
+   * Everything Settings edits. Language and appearance are not part of it: they are applied the moment they are
+   * chosen, from the header, through their own narrow write, so a draft cannot carry a stale copy of them.
+   */
+  readonly settings: SettingsDraft;
   /**
    * The current capability of the drafted area, **naming the area it was read for**, so the repository can refuse
    * an unavailable one — and refuse one that describes a different area altogether.
@@ -54,7 +60,8 @@ export interface SettingsSaveInput {
 }
 
 export interface SettingsViewProps {
-  readonly providers: readonly ProviderSummary[];
+  readonly cities: CityCatalogueState;
+  readonly catalogue: ProviderCatalogueState;
   /**
    * How far the area request has got, and for which provider.
    *
@@ -62,8 +69,17 @@ export interface SettingsViewProps {
    * empty one meant "asked and got none", "not asked yet", or "asked and it failed". Settings reads all
    * three differently: only the last offers a retry, and only the first may be presented as an answer.
    */
-  readonly areaState: AreaCatalogueState;
-  readonly initialSettings: AppSettings;
+  readonly areaStateFor: (providerId: string | null) => AreaCatalogueState;
+  readonly initialSettings: SettingsDraft;
+  /**
+   * The stored selection's city, once derived from successful reads, or `null` until it is.
+   *
+   * Never guessed: while it is unknown the city field stays empty and the stored selection stays in the draft
+   * untouched, so saving reminders or waste types never needs the city at all.
+   */
+  readonly initialCityId: string | null;
+  readonly onRetryCities: () => void;
+  readonly onRetryCatalogue: () => void;
   readonly onCancel: () => void;
   /** Persists the whole value in one operation and reports what the repository decided. */
   readonly onSave: (input: SettingsSaveInput) => Promise<SettingsSaveOutcome>;
@@ -91,16 +107,21 @@ const selectableWasteTypes: WasteType[] = [
 ];
 
 export const SettingsView = ({
-  providers,
-  areaState,
+  cities,
+  catalogue,
+  areaStateFor,
   initialSettings,
+  initialCityId,
+  onRetryCities,
+  onRetryCatalogue,
   onCancel,
   onSave,
   onRequestAreas,
   onRetryAreas,
   headingRef,
 }: SettingsViewProps) => {
-  const [draft, setDraft] = useState(initialSettings);
+  const { messages } = useCopy();
+  const [draft, setDraft] = useState<SettingsDraft>(initialSettings);
   /**
    * Captured once, when the draft is created, and never updated for the life of this session.
    *
@@ -111,48 +132,19 @@ export const SettingsView = ({
   const [isSaving, setIsSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [areaError, setAreaError] = useState<string | null>(null);
-  /**
-   * The provider being edited, tracked separately from the drafted area.
-   *
-   * Deriving it from `draft.selection` would make the controlled select fall back to its placeholder the
-   * moment the provider changes — because choosing a provider clears the drafted area — so the field would
-   * appear to reset itself while the new provider's areas were still loading.
-   */
-  const [draftProviderId, setDraftProviderId] = useState<string | null>(
-    initialSettings.selection?.providerId ?? null,
-  );
-  const providerFieldId = useId();
-  const areaLabelId = useId();
-  const unavailableHintId = useId();
   const timeFieldId = useId();
 
   const selection: ServiceAreaSelection | null = draft.selection;
-  const offered = offerableProviders(providers);
   /**
-   * Areas of the provider being edited, and of nobody else.
+   * Areas of the drafted selection's provider, and of nobody else — the list the evidence below is read from.
    *
    * `areasOf` answers from the state's own provider rather than by filtering a list that might belong to
    * someone else, so an identifier cannot be carried across providers even if the state on hand is stale.
    */
-  const draftAreas = areasOf(areaState, draftProviderId);
-
-  /**
-   * Asks for the edited provider's areas whenever the state on hand is about someone else.
-   *
-   * Cancelling a provider change discards the draft but not the areas that change loaded, so reopening
-   * Settings can arrive with another provider's state. Without this the area list would stay empty forever,
-   * because the surrounding catalogue only fetches for the *stored* provider. Requesting here keeps the view
-   * correct whatever it is handed.
-   *
-   * It cannot loop: once the request is in flight, or has answered, or has failed, the state names this
-   * provider and the condition is false. A failure is therefore not retried here — that is
-   * `onRetryAreas`, which a person triggers.
-   */
-  useEffect(() => {
-    if (draftProviderId !== null && areaStateProviderId(areaState) !== draftProviderId) {
-      onRequestAreas(draftProviderId);
-    }
-  }, [areaState, draftProviderId, onRequestAreas]);
+  const draftAreas = areasOf(
+    areaStateFor(selection?.providerId ?? null),
+    selection?.providerId ?? null,
+  );
 
   const toggleWasteType = (type: WasteType) => {
     const isSelected = draft.visibleWasteTypes.includes(type);
@@ -219,9 +211,7 @@ export const SettingsView = ({
          * Save again would be refused for the same reason. The person has to look at what changed, which is why
          * the surface tells them to reopen rather than offering to try again.
          */
-        setSaveError(
-          'Das gespeicherte Sammelgebiet hat sich zwischenzeitlich geändert. Die Einstellungen wurden nicht gespeichert. Bitte schließe die Einstellungen und prüfe die Auswahl erneut.',
-        );
+        setSaveError(messages.settings.conflict);
 
         return;
       }
@@ -229,11 +219,11 @@ export const SettingsView = ({
       // Refused by the repository. The view stays open and the previously stored value is untouched.
       setSaveError(
         outcome === 'rejected_unavailable'
-          ? 'Für dieses Gebiet veröffentlicht der Entsorgungsbetrieb keinen offiziellen Kalender.'
-          : 'Die Einstellungen konnten nicht gespeichert werden. Bitte erneut versuchen.',
+          ? messages.selectionErrors.rejectedUnavailable
+          : messages.settings.saveFailed,
       );
     } catch {
-      setSaveError('Die Einstellungen konnten nicht gespeichert werden. Bitte erneut versuchen.');
+      setSaveError(messages.settings.saveFailed);
     } finally {
       setIsSaving(false);
     }
@@ -250,9 +240,7 @@ export const SettingsView = ({
     setSaveError(null);
 
     if (area.collectionEvents.availability === 'unavailable') {
-      setAreaError(
-        'Für dieses Gebiet veröffentlicht der Entsorgungsbetrieb keinen offiziellen Kalender.',
-      );
+      setAreaError(messages.selectionErrors.rejectedUnavailable);
 
       return;
     }
@@ -263,141 +251,74 @@ export const SettingsView = ({
     }));
   };
 
-  const handleSelectProvider = (providerId: string) => {
+  /** A changed city or operator clears only the drafted district; nothing is persisted until Save. */
+  const handleResetArea = () => {
     setAreaError(null);
     setSaveError(null);
-    setDraftProviderId(providerId === '' ? null : providerId);
-    // Only the drafted area is cleared. The persisted selection is untouched until Save, and an identifier is
-    // never carried across providers.
     setDraft((current) => ({ ...current, selection: null }));
-
-    if (providerId !== '') {
-      onRequestAreas(providerId);
-    }
   };
 
   return (
-    <main className="min-h-full px-4 pb-4 pt-5 text-ar-text">
-      <header className="flex items-center gap-3">
-        <button
-          type="button"
-          className="grid size-11 place-items-center rounded-2xl border border-ar-border bg-ar-surface text-ar-text-muted shadow-ar-sm focus-visible:outline-ar-focus"
-          aria-label="Zurück"
-          onClick={onCancel}
-        >
-          <ArrowLeft size={19} />
-        </button>
-        <div>
-          <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-ar-brand">
-            AbfallRadar
-          </p>
-          {/*
-            `tabIndex={-1}` makes the heading programmatically focusable without adding it to the tab order: a
-            heading is not focusable by default, so moving focus here would otherwise do nothing at all.
-          */}
-          <h1
-            ref={headingRef}
-            tabIndex={-1}
-            className="text-lg font-semibold tracking-tight outline-none"
+    <main className="min-h-full px-4 pb-4 pt-4 text-ar-text">
+      <PopupHeader
+        leading={
+          <button
+            type="button"
+            className="relative grid size-9 place-items-center rounded-full border border-ar-border bg-ar-surface text-ar-text transition-colors after:absolute after:-inset-[5px] after:content-[''] hover:bg-ar-surface-muted focus-visible:outline-ar-focus motion-reduce:transition-none"
+            aria-label={messages.header.back}
+            onClick={onCancel}
           >
-            Einstellungen
-          </h1>
-        </div>
-      </header>
+            <ArrowLeft size={17} aria-hidden="true" className="rtl:rotate-180" />
+          </button>
+        }
+      />
+      {/*
+        `tabIndex={-1}` makes the heading programmatically focusable without adding it to the tab order: a
+        heading is not focusable by default, so moving focus here would otherwise do nothing at all.
+      */}
+      <h1
+        ref={headingRef}
+        tabIndex={-1}
+        className="mt-4 text-lg font-semibold tracking-tight break-words outline-none"
+      >
+        {messages.settings.heading}
+      </h1>
 
-      <section className="mt-5 rounded-3xl border border-ar-border bg-ar-surface p-4 shadow-ar-sm">
-        <label className="flex items-center gap-2 text-sm font-semibold" htmlFor={providerFieldId}>
-          <MapPin size={17} className="text-ar-brand" />
-          Entsorgungsbetrieb
-        </label>
-        <select
-          id={providerFieldId}
-          className="mt-3 min-h-11 w-full rounded-2xl border border-ar-border bg-ar-surface-muted px-3.5 py-3 text-sm font-medium outline-none transition focus:border-ar-brand focus:ring-3 focus:ring-ar-brand-soft"
-          // Bound to the draft provider, so it keeps showing the chosen provider while its areas load.
-          value={draftProviderId ?? ''}
-          onChange={(event) => handleSelectProvider(event.target.value)}
-        >
-          <option value="" disabled>
-            Bitte wählen
-          </option>
-          {offered.map((provider) => (
-            <option key={provider.id} value={provider.id}>
-              {provider.name}
-            </option>
-          ))}
-        </select>
-
-        {draftAreas.length > 0 && (
-          <>
-            <p className="mt-4 text-sm font-semibold" id={areaLabelId}>
-              Sammelgebiet
-            </p>
-            <p className="sr-only" id={unavailableHintId}>
-              Für dieses Gebiet veröffentlicht der Entsorgungsbetrieb keinen offiziellen Kalender.
-            </p>
-            <ul className="mt-2 space-y-2" aria-labelledby={areaLabelId}>
-              {draftAreas.map((area) => {
-                const isUnavailable = area.collectionEvents.availability === 'unavailable';
-                const isSelected = area.id === selection?.serviceAreaId;
-
-                return (
-                  <li key={area.id}>
-                    <button
-                      type="button"
-                      // Genuinely disabled: not operable by pointer or keyboard, out of the tab order, and
-                      // announced as unavailable. Appearance is never the mechanism.
-                      disabled={isUnavailable}
-                      aria-pressed={isSelected}
-                      aria-describedby={isUnavailable ? unavailableHintId : undefined}
-                      className={[
-                        'flex min-h-11 w-full items-start gap-2 rounded-2xl border px-3.5 py-3 text-left transition focus-visible:outline-ar-focus',
-                        isSelected
-                          ? 'border-ar-brand bg-ar-brand-soft text-ar-brand-strong'
-                          : 'border-ar-border bg-ar-surface',
-                        isUnavailable ? 'cursor-not-allowed opacity-70' : '',
-                      ].join(' ')}
-                      onClick={() => handleSelectArea(area)}
-                    >
-                      {isSelected && <Check size={15} className="mt-0.5 shrink-0" />}
-                      <span className="min-w-0 flex-1">
-                        <span className="block truncate text-sm font-semibold">
-                          {area.locality} · {area.name}
-                        </span>
-                        {isUnavailable && (
-                          <span className="mt-0.5 block text-xs text-ar-text-muted">
-                            Kein offizieller Kalender veröffentlicht
-                          </span>
-                        )}
-                      </span>
-                    </button>
-                  </li>
-                );
-              })}
-            </ul>
-          </>
-        )}
-
-        {/*
-          Every area-request state, including the failure and its retry. The area list above renders only a
-          successful, non-empty answer, so without this the other four states would be an empty panel that
-          reads as a request still running.
-        */}
-        <AreaStatePanel state={areaState} providerId={draftProviderId} onRetry={onRetryAreas} />
-
+      <AreaPicker
+        cities={cities}
+        catalogue={catalogue}
+        areaStateFor={areaStateFor}
+        initialCityId={initialCityId}
+        initialProviderId={initialSettings.selection?.providerId ?? null}
+        chosenAreaId={selection?.serviceAreaId ?? null}
+        onChooseArea={handleSelectArea}
+        onResetArea={handleResetArea}
+        onRetryCities={onRetryCities}
+        onRetryCatalogue={onRetryCatalogue}
+        onRequestAreas={onRequestAreas}
+        onRetryAreas={onRetryAreas}
+      >
         {areaError !== null && (
           <p className="mt-3 text-sm text-ar-danger" role="alert">
             {areaError}
           </p>
         )}
-      </section>
+      </AreaPicker>
 
-      <section className="mt-3 rounded-3xl border border-ar-border bg-ar-surface p-4 shadow-ar-sm">
-        <div className="flex items-center justify-between gap-3">
-          <div className="flex items-center gap-2">
-            <BellRing size={17} className="text-ar-brand" />
-            <div>
-              <p className="text-sm font-semibold">Erinnerungen</p>
-              <p className="text-xs text-ar-text-muted">Am Vorabend erinnern</p>
+      <section className="mt-3 rounded-ar-xl border border-ar-border bg-ar-surface p-4 shadow-ar-sm">
+        {/*
+          Wrapping, not fixed: the switch is sized in `rem`, so at 200 % text it is as wide as a phone's
+          margin allows and the label beside it no longer fits on one line. The row becomes two rows rather
+          than pushing the popup sideways.
+        */}
+        <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
+          <div className="flex min-w-0 flex-1 items-center gap-2">
+            <BellRing size={17} className="shrink-0 text-ar-brand" aria-hidden="true" />
+            <div className="min-w-0">
+              <p className="text-sm font-semibold break-words">{messages.settings.reminders}</p>
+              <p className="text-xs break-words text-ar-text-muted">
+                {messages.settings.remindersDescription}
+              </p>
             </div>
           </div>
           <label className="relative inline-flex min-h-11 cursor-pointer items-center">
@@ -413,17 +334,17 @@ export const SettingsView = ({
               }
             />
             <span className="h-7 w-12 rounded-full bg-ar-border transition peer-checked:bg-ar-brand peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-ar-focus after:absolute after:left-1 after:top-3 after:size-5 after:rounded-full after:bg-ar-surface after:shadow-ar-sm after:transition-transform peer-checked:after:translate-x-5" />
-            <span className="sr-only">Erinnerungen aktivieren</span>
+            <span className="sr-only">{messages.settings.remindersToggle}</span>
           </label>
         </div>
 
         <label className="mt-4 flex items-center gap-2 text-sm font-semibold" htmlFor={timeFieldId}>
           <Clock3 size={17} className="text-ar-brand" />
-          Uhrzeit
+          {messages.settings.reminderTime}
         </label>
         <select
           id={timeFieldId}
-          className="mt-3 min-h-11 w-full rounded-2xl border border-ar-border bg-ar-surface-muted px-3.5 py-3 text-sm font-medium outline-none transition focus:border-ar-brand focus:ring-3 focus:ring-ar-brand-soft disabled:cursor-not-allowed disabled:opacity-50"
+          className="mt-3 min-h-11 w-full rounded-ar-md border border-ar-border bg-ar-surface-muted px-3.5 py-3 text-sm font-medium outline-none transition focus:border-ar-brand focus:ring-3 focus:ring-ar-brand-soft disabled:cursor-not-allowed disabled:opacity-50"
           value={draft.reminderTime}
           disabled={!draft.remindersEnabled}
           onChange={(event) =>
@@ -437,8 +358,8 @@ export const SettingsView = ({
         </select>
       </section>
 
-      <fieldset className="mt-3 rounded-3xl border border-ar-border bg-ar-surface p-4 shadow-ar-sm">
-        <legend className="px-1 text-sm font-semibold">Abfallarten</legend>
+      <fieldset className="mt-3 min-w-0 rounded-ar-xl border border-ar-border bg-ar-surface p-4 shadow-ar-sm">
+        <legend className="px-1 text-sm font-semibold">{messages.settings.wasteTypes}</legend>
         <div className="mt-2 flex flex-wrap gap-2">
           {selectableWasteTypes.map((type) => {
             const isSelected = draft.visibleWasteTypes.includes(type);
@@ -448,7 +369,10 @@ export const SettingsView = ({
                 key={type}
                 type="button"
                 className={[
-                  'inline-flex min-h-11 items-center gap-1.5 rounded-full border px-3 py-2 text-xs font-semibold transition focus-visible:outline-ar-focus',
+                  // `max-w-full` with `break-words`, because a waste type is one long compound word in
+                  // German: at 200 % text `Elektrokleinteile` is wider than a 320 px popup, and a chip that
+                  // cannot break it would push the whole page sideways.
+                  'inline-flex min-h-11 max-w-full items-center gap-1.5 rounded-full border px-3 py-2 text-start text-xs font-semibold break-words transition focus-visible:outline-ar-focus motion-reduce:transition-none',
                   isSelected
                     ? 'border-ar-brand bg-ar-brand-soft text-ar-brand-strong'
                     : 'border-ar-border bg-ar-surface text-ar-text-muted',
@@ -457,7 +381,7 @@ export const SettingsView = ({
                 onClick={() => toggleWasteType(type)}
               >
                 {isSelected && <Check size={13} />}
-                {wasteLabels[type]}
+                {messages.waste[type]}
               </button>
             );
           })}
@@ -466,11 +390,11 @@ export const SettingsView = ({
 
       <button
         type="button"
-        className="mt-4 min-h-11 w-full rounded-2xl bg-ar-brand px-4 py-3.5 text-sm font-semibold text-ar-on-brand shadow-ar-brand transition hover:bg-ar-brand-strong focus-visible:outline-ar-focus disabled:cursor-wait disabled:opacity-70"
+        className="mt-4 min-h-11 w-full rounded-ar-md bg-ar-brand px-4 py-3.5 text-sm font-semibold text-ar-on-brand shadow-ar-brand transition hover:bg-ar-brand-strong focus-visible:outline-ar-focus disabled:cursor-wait disabled:opacity-70"
         disabled={isSaving}
         onClick={() => void handleSave()}
       >
-        {isSaving ? 'Wird gespeichert…' : 'Einstellungen speichern'}
+        {isSaving ? messages.settings.saving : messages.settings.save}
       </button>
       {saveError && (
         <p className="mt-3 text-center text-sm text-ar-danger" role="alert">

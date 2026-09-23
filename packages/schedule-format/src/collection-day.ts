@@ -1,5 +1,5 @@
 import type { CollectionEvent } from '@abfall-radar/domain';
-import { type IsoDate, startOfSourceDay } from '@/src/schedule/source-day';
+import { type IsoDate, startOfSourceDay } from './source-day';
 
 /**
  * What the source's own calendar day means for a collection: whether it is under way, and what the

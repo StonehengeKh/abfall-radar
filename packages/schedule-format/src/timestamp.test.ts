@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { compareTimestamps } from '@/src/schedule/timestamp';
+import { compareTimestamps } from './timestamp';
 
 const order = (left: string, right: string) => compareTimestamps(left, right);
 

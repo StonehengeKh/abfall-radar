@@ -12,6 +12,7 @@
   },
   "dependencies": {
     "@abfall-radar/domain": "workspace:*",
+    "@abfall-radar/schedule-format": "workspace:*",
     "lucide-react": "catalog:"
   },
   "devDependencies": {

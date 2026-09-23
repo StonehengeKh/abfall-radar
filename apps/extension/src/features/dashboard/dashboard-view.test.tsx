@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react';
+import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 import { deriveScheduleView } from '@/src/schedule/view-state';
@@ -29,6 +29,12 @@ const renderView = (
   return { ...result, onOpenSettings, onRetry };
 };
 
+/** The featured collection's card. */
+const featured = (): HTMLElement => screen.getByTestId('next-collection');
+
+/** The source details, as the shared card renders them. */
+const provenance = (): HTMLElement => screen.getByTestId('provenance');
+
 const liveView = (options: Parameters<typeof schedule>[0] = {}) =>
   deriveScheduleView({
     hasSelection: true,
@@ -53,17 +59,18 @@ describe('DashboardView provenance', () => {
 
     expect(screen.getByText('Kommunaler Servicebetrieb')).toBeInTheDocument();
     expect(screen.getByText('Kommunaler Servicebetrieb, Koblenz')).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: /Offizielle Seite des Betriebs/ })).toHaveAttribute(
+    expect(screen.getByRole('link', { name: 'Quelle öffnen' })).toHaveAttribute(
       'href',
       'https://servicebetrieb.koblenz.de/abfallwirtschaft/entsorgungstermine-digital/',
     );
-    expect(screen.getByText(/Aktuell abgerufen am/)).toBeInTheDocument();
+    expect(provenance()).toHaveTextContent(/Abgerufen: .+ UTC · Aktuell/);
   });
 
   it('shows the area under its official naming', () => {
     renderView(liveView());
 
-    expect(screen.getByText('Koblenz · Stadtmitte')).toBeInTheDocument();
+    // The place in the header comes from the schedule's own provenance, never from a display name elsewhere.
+    expect(screen.getByTestId('header-place')).toHaveTextContent('Koblenz · Stadtmitte');
   });
 
   it('names the waste types the source does not publish, separately from an empty result', () => {
@@ -88,8 +95,9 @@ describe('DashboardView event variants', () => {
   it('shows the window, the zone, and the location of a mobile drop-off', () => {
     renderView(liveView({ events: [mobileDropOffEvent('2026-03-10')] }));
 
-    expect(screen.getByText(/Europe\/Berlin/)).toBeInTheDocument();
-    expect(screen.getByText('Rizzastraße Ecke Südallee')).toBeInTheDocument();
+    // 10:00–12:00 UTC in the source's zone, with each end's offset, which is 11:00–13:00 in Berlin in March.
+    expect(featured()).toHaveTextContent('11:00 UTC+01:00–13:00 UTC+01:00 (Europe/Berlin)');
+    expect(featured()).toHaveTextContent('Rizzastraße Ecke Südallee');
   });
 
   it('shows neither a window nor a location for a curbside collection', () => {
@@ -102,8 +110,10 @@ describe('DashboardView event variants', () => {
   it('shows the next collection and its relative label', () => {
     renderView(liveView({ events: [curbsideEvent('2026-03-10')] }));
 
-    expect(screen.getByText('Morgen')).toBeInTheDocument();
-    expect(screen.getByText('Altpapier')).toBeInTheDocument();
+    expect(screen.getByTestId('next-collection-date')).toHaveTextContent(
+      'morgen · Di., 10.03.2026',
+    );
+    expect(featured()).toHaveTextContent('Altpapier');
   });
 });
 
@@ -139,7 +149,7 @@ describe('DashboardView later mobile drop-off events', () => {
     renderView(firstCurbsideThenDropOff());
 
     // The premise of every assertion below. Without it they could all pass against the hero event.
-    expect(screen.getByText('Altpapier')).toBeInTheDocument();
+    expect(featured()).toHaveTextContent('Altpapier');
     expect(laterSection()).toHaveTextContent('Schadstoffe');
   });
 
@@ -147,7 +157,7 @@ describe('DashboardView later mobile drop-off events', () => {
     renderView(firstCurbsideThenDropOff());
 
     // 10:00–12:00 UTC rendered in the source's zone, which is 11:00–13:00 in Berlin in March.
-    expect(laterSection()).toHaveTextContent('11:00–13:00');
+    expect(laterSection()).toHaveTextContent('11:00 UTC+01:00–13:00 UTC+01:00');
   });
 
   it('shows the declared time zone of a later drop-off', () => {
@@ -188,8 +198,13 @@ describe('DashboardView later mobile drop-off events', () => {
       }),
     );
 
-    expect(screen.getAllByText(/Europe\/Berlin/)).toHaveLength(2);
-    expect(screen.getAllByText('Rizzastraße Ecke Südallee')).toHaveLength(2);
+    const [row] = screen.getAllByTestId('event-row');
+
+    // One formatter for both, so neither can word the window or the place differently.
+    for (const container of [featured(), row]) {
+      expect(container).toHaveTextContent('11:00 UTC+01:00–13:00 UTC+01:00 (Europe/Berlin)');
+      expect(container).toHaveTextContent('Rizzastraße Ecke Südallee');
+    }
   });
 });
 
@@ -197,24 +212,24 @@ describe('DashboardView freshness labelling', () => {
   it('labels a current response as freshly retrieved', () => {
     renderView(liveView({ events: [curbsideEvent('2026-03-10')] }));
 
-    expect(screen.getByText(/Aktuell abgerufen am/)).toBeInTheDocument();
+    expect(provenance()).toHaveTextContent('· Aktuell');
     expect(screen.queryByText(/Gespeicherte Termine/)).not.toBeInTheDocument();
   });
 
   it('labels a stale response without claiming it is current', () => {
     renderView(liveView({ events: [curbsideEvent('2026-03-10')], freshness: 'stale' }));
 
-    // `Stand vom` appears only on the status line; the live region carries its own wording, so this
-    // query cannot match both.
-    expect(screen.getByText(/Stand vom/)).toBeInTheDocument();
-    expect(screen.queryByText(/Aktuell abgerufen am/)).not.toBeInTheDocument();
+    expect(provenance()).toHaveTextContent('Quelle meldet veraltete Daten');
+    expect(provenance()).not.toHaveTextContent('· Aktuell');
   });
 
   it('labels a restored entry as offline and never as fresh', () => {
     renderView(cachedView({ events: [curbsideEvent('2026-03-10')] }));
 
     expect(screen.getByText(/API nicht erreichbar/)).toBeInTheDocument();
-    expect(screen.queryByText(/Aktuell abgerufen am/)).not.toBeInTheDocument();
+    expect(provenance()).not.toHaveTextContent('· Aktuell');
+    // Nor does it borrow the source's own "stale" claim: the popup being offline is not the source's report.
+    expect(provenance()).not.toHaveTextContent('veraltete');
   });
 
   it('distinguishes a failed refresh from being offline', () => {
@@ -226,8 +241,8 @@ describe('DashboardView freshness labelling', () => {
   it('shows both its own storage time and the source retrieval time', () => {
     renderView(cachedView({ events: [curbsideEvent('2026-03-10')] }));
 
-    expect(screen.getByText(/Gespeichert am/)).toBeInTheDocument();
-    expect(screen.getByText(/Von der Quelle abgerufen am/)).toBeInTheDocument();
+    expect(screen.getByTestId('cached-notice')).toHaveTextContent(/Gespeichert am .+ UTC/);
+    expect(provenance()).toHaveTextContent(/Abgerufen: .+ UTC/);
   });
 });
 
@@ -260,7 +275,7 @@ describe('DashboardView retained-newer labelling', () => {
   it('never presents it as a current response', () => {
     renderView(retainedView());
 
-    expect(screen.queryByText(/Aktuell abgerufen am/)).not.toBeInTheDocument();
+    expect(provenance()).not.toHaveTextContent('· Aktuell');
     // Still labelled as stored data, with its own storage time.
     expect(screen.getByText(/Gespeichert am/)).toBeInTheDocument();
   });
@@ -355,8 +370,10 @@ describe('DashboardView cache coverage', () => {
       }),
     );
 
-    expect(screen.getByText(/^Zeitraum/)).toHaveTextContent('30.04.2026');
-    expect(screen.getByText(/^Zeitraum/)).not.toHaveTextContent('31.05.2026');
+    const period = within(provenance()).getByText(/^Angezeigter Zeitraum/);
+
+    expect(period).toHaveTextContent('30.04.2026');
+    expect(period).not.toHaveTextContent('31.05.2026');
   });
 });
 
@@ -565,8 +582,8 @@ describe('the live refresh phase', () => {
 
     renderView(live);
 
-    expect(screen.getByText(/Aktuell abgerufen am/)).toBeInTheDocument();
-    expect(screen.queryByText(/Gespeicherte Termine/)).not.toBeInTheDocument();
+    expect(provenance()).toHaveTextContent('· Aktuell');
+    expect(screen.queryByTestId('cached-notice')).not.toBeInTheDocument();
   });
 
   it('respects server freshness when the live response is stale', () => {
@@ -678,7 +695,7 @@ describe('DashboardView event ordering', () => {
       return [];
     }
 
-    return [...section.querySelectorAll('p.tabular-nums')].map((node) => node.textContent ?? '');
+    return [...section.querySelectorAll('time')].map((node) => node.getAttribute('dateTime') ?? '');
   };
 
   it('shows the earliest event as the next collection when the response is unsorted', () => {
@@ -689,10 +706,12 @@ describe('DashboardView event ordering', () => {
       }),
     );
 
-    // 2026-03-10 is the day after the reference date, so the earliest event reads as "Morgen".
-    expect(screen.getByText('Morgen')).toBeInTheDocument();
-    expect(screen.getByText('2026-03-10')).toBeInTheDocument();
-    expect(screen.queryByText('2026-03-24')).not.toBeInTheDocument();
+    // 2026-03-10 is the day after the reference date, so the earliest event reads as "morgen".
+    expect(screen.getByTestId('next-collection-date')).toHaveTextContent(
+      'morgen · Di., 10.03.2026',
+    );
+    expect(featured()).toHaveTextContent('Altpapier');
+    expect(laterDates()).toEqual(['2026-03-24']);
   });
 
   it('renders the rows after the hero in ascending order', () => {
@@ -707,9 +726,8 @@ describe('DashboardView event ordering', () => {
     );
 
     // The hero holds the earliest; the list holds the rest, still ascending.
-    expect(screen.getByText('2026-03-10')).toBeInTheDocument();
-    // Both are more than a week out, so each renders as a short weekday date — still ascending.
-    expect(laterDates()).toEqual(['Di., 24. März', 'Di., 7. Apr.']);
+    expect(screen.getByTestId('next-collection-date')).toHaveTextContent('10.03.2026');
+    expect(laterDates()).toEqual(['2026-03-24', '2026-04-07']);
   });
 
   it('orders an all-day collection before a timed one on the same date', () => {
@@ -718,26 +736,33 @@ describe('DashboardView event ordering', () => {
       liveView({ events: [mobileDropOffEvent('2026-03-10'), curbsideEvent('2026-03-10')] }),
     );
 
-    // The curbside paper collection is the hero, so its label — not the drop-off's — is the headline.
-    expect(screen.getByRole('heading', { name: 'Altpapier' })).toBeInTheDocument();
+    // The curbside paper collection is the featured one, and the drop-off follows it in the list.
+    expect(featured()).toHaveTextContent('Altpapier');
+    expect(within(laterSection() as HTMLElement).getByTestId('event-row-title')).toHaveTextContent(
+      'Schadstoffe',
+    );
   });
 
   it('is deterministic for two events sharing a date and a timing', () => {
-    // Same date, both all-day: the waste type then the identifier decide, so the order cannot vary per render.
+    // Same date, both all-day: the identifier decides, so the order cannot vary per render.
     const first = { ...curbsideEvent('2026-03-10', 'bio'), id: 'zzz-last' };
     const second = { ...curbsideEvent('2026-03-10', 'paper'), id: 'aaa-first' };
 
     const { unmount } = renderView(liveView({ events: [first, second] }));
-    const initial = screen.getByRole('heading', { name: /Biotonne|Altpapier/ }).textContent;
+    const featuredType = () => within(featured()).getByText(/^(Biotonne|Altpapier)$/).textContent;
+    const initial = featuredType();
 
     unmount();
 
     // The same set in the opposite order produces the same hero.
     renderView(liveView({ events: [second, first] }));
 
-    expect(screen.getByRole('heading', { name: /Biotonne|Altpapier/ }).textContent).toBe(initial);
-    // `bio` sorts before `paper`, so the waste type decides before the identifier is consulted.
-    expect(initial).toBe('Biotonne');
+    expect(featuredType()).toBe(initial);
+    /*
+     * The product's one event order, shared with the website and the reminder, breaks this tie by the
+     * identifier alone: `aaa-first` precedes `zzz-last`, whatever the waste types are.
+     */
+    expect(initial).toBe('Altpapier');
   });
 
   it('applies the waste-type filter before choosing the next collection', () => {
@@ -747,8 +772,8 @@ describe('DashboardView event ordering', () => {
       ['paper'],
     );
 
-    expect(screen.getByText('2026-03-24')).toBeInTheDocument();
-    expect(screen.queryByText('2026-03-10')).not.toBeInTheDocument();
+    expect(screen.getByTestId('next-collection-date')).toHaveTextContent('24.03.2026');
+    expect(screen.queryByText('Restabfall')).not.toBeInTheDocument();
   });
 
   it('bounds the choice by the display range, so an excluded event cannot become the hero', () => {
@@ -764,8 +789,8 @@ describe('DashboardView event ordering', () => {
       }),
     );
 
-    expect(screen.getByText('2026-03-20')).toBeInTheDocument();
-    expect(screen.queryByText('2026-03-02')).not.toBeInTheDocument();
+    expect(screen.getByTestId('next-collection-date')).toHaveTextContent('20.03.2026');
+    expect(laterDates()).toEqual([]);
   });
 
   it('reaches the empty state from the filtered and bounded set rather than from the raw list', () => {
@@ -805,11 +830,11 @@ describe('DashboardView external source link', () => {
   it('opens in a new context without leaking a referrer or a window handle', () => {
     renderView(liveView({ events: [curbsideEvent('2026-03-10')] }));
 
-    const link = screen.getByRole('link', { name: /Offizielle Seite des Betriebs/ });
+    const link = screen.getByRole('link', { name: 'Quelle öffnen' });
 
     expect(link).toHaveAttribute('target', '_blank');
-    // `noreferrer` implies `noopener`, so the opened document can neither see where it came from nor reach back.
-    expect(link).toHaveAttribute('rel', 'noreferrer');
+    // The opened document can neither see where it came from nor reach back.
+    expect(link).toHaveAttribute('rel', 'noreferrer noopener');
   });
 
   it('renders the operator’s address exactly as it was published', () => {
@@ -817,7 +842,7 @@ describe('DashboardView external source link', () => {
 
     // Path intact: normalizing it would misrepresent the address, and it is only ever an http(s) URL because the
     // boundary refused anything else.
-    expect(screen.getByRole('link', { name: /Offizielle Seite des Betriebs/ })).toHaveAttribute(
+    expect(screen.getByRole('link', { name: 'Quelle öffnen' })).toHaveAttribute(
       'href',
       'https://servicebetrieb.koblenz.de/abfallwirtschaft/entsorgungstermine-digital/',
     );

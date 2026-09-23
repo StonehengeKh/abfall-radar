@@ -79,7 +79,8 @@ whereas an additive server field must not break an installed extension.
 | `apps/mobile` | Native shell and native feature composition | DOM components |
 | `packages/domain` | Schemas, models, pure business rules | Frameworks, I/O, municipality details |
 | `packages/data-providers` | Source contracts, adapters, normalization | Product UI or persisted user settings |
-| `packages/ui` | Semantic tokens and DOM React primitives | Product-specific data fetching |
+| `packages/schedule-format` | Framework-free schedule presentation rules: source-local day, event order, featured event, collection day, drop-off window, date formatting, shared copy ([ADR 0006](../decisions/0006-schedule-format-package.md)) | React, the DOM, storage, I/O, application-specific copy |
+| `packages/ui` | Semantic tokens, DOM React primitives, and the shared schedule components and menus | Product-specific data fetching, controllers, navigation, storage |
 | `packages/api-client` | Typed transport contract, request construction, deadlines, failure translation | Application state, visual behavior, a cache, a product retry policy, or a domain dependency |
 | `packages/test-utils` | Cross-workspace builders and adapters | Product-only fixtures |
 

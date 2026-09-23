@@ -2,10 +2,12 @@ import { z } from 'zod';
 import {
   type AppSettings,
   AppSettingsSchema,
+  DEFAULT_PRESENTATION,
   defaultSettings,
   LegacyAppSettingsSchema,
   SETTINGS_SCHEMA_VERSION,
   type ServiceAreaSelection,
+  SettingsV2Schema,
 } from './settings';
 
 /**
@@ -88,7 +90,35 @@ export const migrateSettings = (raw: unknown): SettingsMigration => {
     return { outcome: 'current', settings: current.data };
   }
 
-  // 3. Versioned, and not this version. Never legacy, whatever else it happens to contain.
+  /**
+   * 3. Version 2, exactly as that build wrote it: carried onto version 3 **locally**, with no request.
+   *
+   * Every stored value survives — the selection in the same `{ providerId, serviceAreaId }` shape, the
+   * reminders and the waste types — and the two preferences version 2 had no field for take their defaults.
+   * The selection is not re-verified here: it is only identifiers, and the popup revalidates it through the
+   * API before anything is requested for it, exactly as it would have under version 2.
+   *
+   * Idempotent across reopenings: once version 3 is written, step 2 answers `current` and nothing is migrated
+   * again, so a language or appearance chosen after the upgrade is never reset to a default.
+   */
+  const previous = SettingsV2Schema.safeParse(raw);
+
+  if (previous.success) {
+    return {
+      outcome: 'migrated',
+      settings: {
+        version: SETTINGS_SCHEMA_VERSION,
+        selection: previous.data.selection === null ? null : { ...previous.data.selection },
+        remindersEnabled: previous.data.remindersEnabled,
+        reminderDaysBefore: previous.data.reminderDaysBefore,
+        reminderTime: previous.data.reminderTime,
+        visibleWasteTypes: [...previous.data.visibleWasteTypes],
+        ...DEFAULT_PRESENTATION,
+      },
+    };
+  }
+
+  // 4. Versioned, and not a version this build can read. Never legacy, whatever else it happens to contain.
   if (declaresVersion(raw)) {
     const marker = VersionMarkerSchema.safeParse(raw);
 
@@ -110,7 +140,7 @@ export const migrateSettings = (raw: unknown): SettingsMigration => {
     return { outcome: 'defaulted', settings: defaultSettings };
   }
 
-  // 4. No version declared, so this is the only shape it can be.
+  // 5. No version declared, so this is the only shape it can be.
   const legacy = LegacyAppSettingsSchema.safeParse(raw);
 
   if (!legacy.success) {
@@ -129,6 +159,7 @@ export const migrateSettings = (raw: unknown): SettingsMigration => {
       reminderDaysBefore: legacy.data.reminderDaysBefore,
       reminderTime: legacy.data.reminderTime,
       visibleWasteTypes: [...legacy.data.visibleWasteTypes],
+      ...DEFAULT_PRESENTATION,
     },
   };
 };

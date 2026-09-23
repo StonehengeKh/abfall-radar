@@ -1,4 +1,5 @@
 import type { CollectionEvent } from '@abfall-radar/domain';
+import { deriveSourceToday, type IsoDate, orderEvents } from '@abfall-radar/schedule-format';
 import { toDomainCollectionEvent } from '@/src/adapters/collection-event';
 import {
   type ConfirmedSelectionStore,
@@ -13,7 +14,6 @@ import type {
   ScheduleGateway,
   ServiceArea,
 } from '@/src/adapters/schedule-gateway';
-import { orderEvents } from '@/src/schedule/event-order';
 import type { Clock, DocumentLifecycle, LifecycleSignal, TimerApi } from '@/src/schedule/lifecycle';
 import {
   RangeRecoveryCoordinator,
@@ -28,7 +28,6 @@ import {
 } from '@/src/schedule/response-invariants';
 import { deriveTargetRange } from '@/src/schedule/schedule-range';
 import { SourceDateWatchdog } from '@/src/schedule/source-date-watchdog';
-import { deriveSourceToday, type IsoDate } from '@/src/schedule/source-day';
 import {
   type AppViewState,
   type AreasState,

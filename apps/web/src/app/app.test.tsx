@@ -9,8 +9,8 @@ import { APP_VIEW_KINDS } from '@/src/schedule/view-state';
 import {
   AREA_ID,
   area,
-  CITY_ID,
   areas,
+  CITY_ID,
   curbside,
   DEMO_PROVIDER,
   dropOff,

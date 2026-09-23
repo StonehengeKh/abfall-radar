@@ -7,6 +7,7 @@ import type {
   RestoredSchedulePayload,
   SchedulePayload,
 } from '@/src/messaging/contract';
+import type { ServiceAreaSelection } from '@/src/storage/settings';
 import {
   AVAILABLE_AREA,
   curbsideEvent,
@@ -16,11 +17,10 @@ import {
   OFFICIAL_PROVIDER_ID,
   restoredSchedule,
   schedule,
+  settingsOperationsRefused,
   UNAVAILABLE_AREA,
   UNAVAILABLE_AREA_ID,
-  settingsOperationsRefused,
 } from '@/src/test/fixtures';
-import type { ServiceAreaSelection } from '@/src/storage/settings';
 import { useSchedule } from './use-schedule';
 
 const SELECTION = {
@@ -74,6 +74,10 @@ const createStubClient = ({ restored = null, areas, events, restoreGate }: StubO
 
   const client: MessagingClient = {
     ...settingsOperationsRefused,
+    listCities: async () => ({ ok: true as const, data: [] }),
+    savePresentation: async () => {
+      throw new Error('savePresentation is not used by this test');
+    },
     async listProviders() {
       calls.push('listProviders');
 
@@ -217,6 +221,10 @@ describe('the authoritative capability response', () => {
     const calls: string[] = [];
     const client: MessagingClient = {
       ...settingsOperationsRefused,
+      listCities: async () => ({ ok: true as const, data: [] }),
+      savePresentation: async () => {
+        throw new Error('savePresentation is not used by this test');
+      },
       listProviders: async () => ok([]),
       listServiceAreas: async () => {
         calls.push('listServiceAreas');
@@ -631,6 +639,10 @@ describe('newest-selection-wins', () => {
 
     const client: MessagingClient = {
       ...settingsOperationsRefused,
+      listCities: async () => ({ ok: true as const, data: [] }),
+      savePresentation: async () => {
+        throw new Error('savePresentation is not used by this test');
+      },
       listProviders: async () => ok([]),
       listServiceAreas: async () => ok(MIXED_AREAS),
       invalidateCachedSchedule: async () => ok(null),
@@ -986,6 +998,10 @@ describe('a stored provider the catalogue has not confirmed', () => {
 describe('clearing a withdrawn schedule', () => {
   const withdrawnAreaClient = (): MessagingClient => ({
     ...settingsOperationsRefused,
+    listCities: async () => ({ ok: true as const, data: [] }),
+    savePresentation: async () => {
+      throw new Error('savePresentation is not used by this test');
+    },
     listProviders: async () => ok([]),
     listServiceAreas: async () => ok([{ ...UNAVAILABLE_AREA, id: OFFICIAL_AREA_ID }]),
     listCollectionEvents: async () => liveEvents(),
@@ -1138,6 +1154,10 @@ describe('the two startup paths', () => {
 
     const client: MessagingClient = {
       ...settingsOperationsRefused,
+      listCities: async () => ({ ok: true as const, data: [] }),
+      savePresentation: async () => {
+        throw new Error('savePresentation is not used by this test');
+      },
       listProviders: async () => ok([]),
       listServiceAreas: async (providerId) => {
         calls.push(`listServiceAreas:${providerId}`);
@@ -1548,6 +1568,10 @@ describe('an area response that arrives after the selection changed', () => {
 
     const client: MessagingClient = {
       ...settingsOperationsRefused,
+      listCities: async () => ({ ok: true as const, data: [] }),
+      savePresentation: async () => {
+        throw new Error('savePresentation is not used by this test');
+      },
       listProviders: async () => ok([]),
       listServiceAreas: async () => {
         requests += 1;

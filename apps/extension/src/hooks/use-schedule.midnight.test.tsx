@@ -128,6 +128,10 @@ const renderAtClock = (initial: Date, initialProps?: Partial<MidnightProps>) => 
 
   const client: MessagingClient = {
     ...settingsOperationsRefused,
+    listCities: async () => ({ ok: true as const, data: [] }),
+    savePresentation: async () => {
+      throw new Error('savePresentation is not used by this test');
+    },
     listProviders: async () => ok([]),
     listServiceAreas: async () => areas.value,
     listCollectionEvents: async (input) => {

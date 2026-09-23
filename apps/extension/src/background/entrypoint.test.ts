@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { fakeBrowser } from 'wxt/testing';
 import background from '@/entrypoints/background';
+import { API_ORIGIN } from '@/src/config/api';
 import { defaultSettings } from '@/src/storage/settings';
 import { writeSettings } from '@/src/storage/settings-repository';
 import { REMINDER_ALARM } from './reminder';
@@ -142,6 +143,96 @@ describe('the background entrypoint', () => {
 
     await vi.waitFor(async () => {
       expect(await fakeBrowser.alarms.get(REMINDER_ALARM)).toBeDefined();
+    });
+  });
+});
+
+/**
+ * The production composition root builds its gateway on the configured API client.
+ *
+ * Every other gateway test injects a client, which proves the gateway and nothing about what the shipped worker
+ * wires in. This drives the real entrypoint and observes the one thing that cannot be faked from inside: the
+ * request that leaves the worker — its origin is the configured one, its path is the versioned contract, and its
+ * validated answer is what the popup receives. Only `fetch` is replaced, because that is the network itself.
+ */
+describe('the background composition root', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  const json = (body: unknown): Response =>
+    new Response(JSON.stringify(body), {
+      status: 200,
+      headers: { 'content-type': 'application/json' },
+    });
+
+  it('sends the popup’s reads through the configured API origin', async () => {
+    const fetched = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+      const url = String(input);
+
+      return url.endsWith('/api/v1/cities')
+        ? json({
+            data: [
+              {
+                id: 'koblenz',
+                name: 'Koblenz',
+                providers: [
+                  {
+                    id: 'koblenz-servicebetrieb',
+                    name: 'Kommunaler Servicebetrieb',
+                    sourceKind: 'official_ics',
+                  },
+                ],
+              },
+            ],
+          })
+        : json({
+            data: [
+              {
+                id: 'koblenz-servicebetrieb',
+                name: 'Kommunaler Servicebetrieb',
+                sourceKind: 'official_ics',
+              },
+            ],
+          });
+    });
+    const { listener } = runEntrypoint();
+
+    const providers = await dispatch(listener, { kind: 'list_providers' });
+    const cities = await dispatch(listener, { kind: 'list_cities' });
+
+    // Development builds default to the local API; whatever it is, it is the one validated configuration value.
+    expect(API_ORIGIN).toBe(new URL(API_ORIGIN).origin);
+    expect(fetched.mock.calls.map(([input]) => String(input))).toEqual([
+      `${API_ORIGIN}/api/v1/providers`,
+      `${API_ORIGIN}/api/v1/cities`,
+    ]);
+    expect(providers.replies[0]).toEqual({
+      ok: true,
+      data: [
+        {
+          id: 'koblenz-servicebetrieb',
+          name: 'Kommunaler Servicebetrieb',
+          sourceKind: 'official_ics',
+        },
+      ],
+    });
+    expect(cities.replies[0]).toMatchObject({
+      ok: true,
+      data: [{ id: 'koblenz', name: 'Koblenz' }],
+    });
+  });
+
+  it('reports an unreachable API as a failure rather than substituting data', async () => {
+    vi.spyOn(globalThis, 'fetch').mockRejectedValue(new TypeError('Failed to fetch'));
+
+    const { listener } = runEntrypoint();
+    const { replies } = await dispatch(listener, { kind: 'list_providers' });
+
+    // No fixture, no demo catalogue: the failure is what the popup is told.
+    expect(replies[0]).toEqual({
+      ok: false,
+      failure: { kind: 'network', operation: 'listProviders' },
     });
   });
 });

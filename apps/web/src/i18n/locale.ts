@@ -1,19 +1,18 @@
 /**
- * The locales this application ships, how one is chosen, and how an explicit choice is remembered.
+ * How this web application remembers an explicit language choice.
  *
- * Presentation only. The source-local date is derived from the **provider's** time zone with a fixed
- * internal formatter, so nothing here can move a collection to a different day.
+ * The languages themselves, and the default, are shared with the extension and live in
+ * `@abfall-radar/schedule-format`; they are re-exported here so the web keeps one import path for
+ * everything about its locale. Only the storage is the web's own.
  */
 
-export const SUPPORTED_LOCALES = ['de', 'en', 'uk', 'ru'] as const;
+import {
+  DEFAULT_LOCALE,
+  isSupportedLocale as isSupported,
+  type Locale,
+} from '@abfall-radar/schedule-format';
 
-export type Locale = (typeof SUPPORTED_LOCALES)[number];
-
-/** German: the product's data, its official names, and its first audience are all German. */
-export const DEFAULT_LOCALE: Locale = 'de';
-
-const isSupported = (value: string): value is Locale =>
-  (SUPPORTED_LOCALES as readonly string[]).includes(value);
+export { DEFAULT_LOCALE, type Locale, SUPPORTED_LOCALES } from '@abfall-radar/schedule-format';
 
 export const STORAGE_KEY = 'abfall-radar.locale';
 

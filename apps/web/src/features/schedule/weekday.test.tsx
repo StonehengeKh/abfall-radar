@@ -1,9 +1,9 @@
+import { formatCalendarDate } from '@abfall-radar/schedule-format';
 import { render, screen, within } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 import { AppShell } from '@/src/app/app';
 import { ThemeProvider } from '@/src/app/theme';
 import { LocaleProvider } from '@/src/i18n/context';
-import { formatCalendarDate } from '@/src/i18n/format';
 import { type Locale, SUPPORTED_LOCALES } from '@/src/i18n/locale';
 import {
   AREA_ID,

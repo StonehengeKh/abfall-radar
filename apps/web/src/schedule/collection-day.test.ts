@@ -1,8 +1,11 @@
 import { type CollectionEvent, CollectionEventSchema } from '@abfall-radar/domain';
+import {
+  isCollectionInProgress,
+  nextCountdownTarget,
+  orderEvents,
+} from '@abfall-radar/schedule-format';
 import { describe, expect, it } from 'vitest';
 import { toDomainCollectionEvent } from '@/src/adapters/collection-event';
-import { isCollectionInProgress, nextCountdownTarget } from '@/src/schedule/collection-day';
-import { orderEvents } from '@/src/schedule/event-order';
 import { curbside, dropOff, events } from '@/src/test/fixtures';
 
 /**

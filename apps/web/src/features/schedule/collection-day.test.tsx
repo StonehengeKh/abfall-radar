@@ -1,8 +1,8 @@
+import { formatWeekdayCalendarDate } from '@abfall-radar/schedule-format';
 import { render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { AppShell } from '@/src/app/app';
 import { LocaleProvider } from '@/src/i18n/context';
-import { formatWeekdayCalendarDate } from '@/src/i18n/format';
 import type { Locale } from '@/src/i18n/locale';
 import { MESSAGES } from '@/src/i18n/messages';
 import { SOURCE_DATE_WATCH_INTERVAL_MS } from '@/src/schedule/source-date-watchdog';

@@ -1,5 +1,5 @@
-import type { Locale } from '@/src/i18n/locale';
-import { daysBetween, type IsoDate, RELATIVE_LABEL_WINDOW_DAYS } from '@/src/schedule/source-day';
+import type { Locale } from './locale';
+import { daysBetween, type IsoDate, RELATIVE_LABEL_WINDOW_DAYS } from './source-day';
 
 /**
  * Locale-aware presentation of dates the application already decided on.

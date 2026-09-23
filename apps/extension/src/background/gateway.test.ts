@@ -37,8 +37,8 @@ import {
   UNAVAILABLE_CAPABILITY,
 } from '@/src/test/fixtures';
 import { createGateway } from './gateway';
-import { showReminder } from './reminder';
 import type { GatewayLogger } from './logger';
+import { showReminder } from './reminder';
 
 const ORIGIN = 'http://127.0.0.1:3000';
 

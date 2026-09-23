@@ -10,11 +10,9 @@ process.env.TZ = 'America/New_York';
 export {};
 
 const { describe, expect, it } = await import('vitest');
-const { deriveSourceToday, relativeDayLabel } = await import('@/src/schedule/source-day');
-const { formatCollectionWindow } = await import('@/src/schedule/collection-window');
-const { formatLongWeekday, formatWeekday, formatWeekdayCalendarDate } = await import(
-  '@/src/i18n/format'
-);
+const { deriveSourceToday, relativeDayLabel } = await import('./source-day');
+const { formatCollectionWindow } = await import('./collection-window');
+const { formatLongWeekday, formatWeekday, formatWeekdayCalendarDate } = await import('./format');
 
 describe('source-local calendar days on a device pinned to America/New_York', () => {
   it('runs on the pinned device zone, so the assertions are not vacuous', () => {

@@ -1,3 +1,4 @@
+import type { WasteType } from '@abfall-radar/domain';
 import {
   BatteryCharging,
   FileText,
@@ -9,7 +10,6 @@ import {
   TreePine,
   TriangleAlert,
 } from 'lucide-react';
-import type { WasteType } from '@abfall-radar/domain';
 
 const icons: Record<WasteType, LucideIcon> = {
   residual: Trash2,

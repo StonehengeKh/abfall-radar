@@ -1,5 +1,5 @@
+import { deriveSourceToday, type IsoDate } from '@abfall-radar/schedule-format';
 import type { Clock, LifecycleSignal, TimerApi, TimerHandle } from '@/src/schedule/lifecycle';
-import { deriveSourceToday, type IsoDate } from '@/src/schedule/source-day';
 
 /** How often a source-date check is **requested**. Delivery timing belongs to the browser. */
 export const SOURCE_DATE_WATCH_INTERVAL_MS = 1000;

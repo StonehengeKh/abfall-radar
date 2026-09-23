@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { createMessagingClient, type MessagingClient } from '@/src/messaging/client';
 import type { SettingsResult } from '@/src/messaging/client';
+import { createMessagingClient, type MessagingClient } from '@/src/messaging/client';
 import {
   type SelectionInvalidationPayload,
   type SelectionWritePayload,
@@ -13,6 +13,7 @@ import {
   type AppSettings,
   defaultSettings,
   type ServiceAreaSelection,
+  type SettingsDraft,
 } from '@/src/storage/settings';
 
 /**
@@ -216,7 +217,8 @@ export const useSettings = ({ client }: UseSettingsInput = {}) => {
    */
   const saveSettings = useCallback(
     async (input: {
-      readonly settings: AppSettings;
+      /** The draft; language and appearance are written only through `savePresentation`. */
+      readonly settings: SettingsDraft;
       readonly evidence?: ServiceAreaCapabilityEvidence | undefined;
       /** The selection stored when the draft was created, so a stale draft is refused rather than applied. */
       readonly expectedSelection: ServiceAreaSelection | null;
@@ -264,10 +266,53 @@ export const useSettings = ({ client }: UseSettingsInput = {}) => {
     [applyWrite, messaging],
   );
 
+  /**
+   * Changes the interface language, the appearance, or both.
+   *
+   * Applied to this popup at once, so the menu answers the choice immediately, and then persisted through the
+   * worker, which writes only these fields. The popup then adopts whatever the worker stored. A write that fails
+   * puts back what was shown before, so the popup never presents a preference that was not kept.
+   */
+  const savePresentation = useCallback(
+    async (update: Partial<Pick<AppSettings, 'locale' | 'appearance'>>): Promise<void> => {
+      let previous: AppSettings | undefined;
+
+      setSettings((current) => {
+        previous = current;
+
+        return { ...current, ...update };
+      });
+
+      const result = await messaging.savePresentation(update);
+
+      if (!result.ok) {
+        if (result.failure.kind === 'unsupported_version') {
+          setStatus('unsupported_version');
+        }
+
+        if (previous !== undefined) {
+          const restored = previous;
+
+          setSettings((current) => ({
+            ...current,
+            locale: restored.locale,
+            appearance: restored.appearance,
+          }));
+        }
+
+        throw new SettingsWriteFailedError();
+      }
+
+      setSettings(result.data);
+    },
+    [messaging],
+  );
+
   return {
     clearSelectionIfUnchanged,
     /** Kept for the surfaces that only need "may I render the application yet". */
     isHydrated: status === 'ready',
+    savePresentation,
     saveSelection,
     saveSettings,
     settings,

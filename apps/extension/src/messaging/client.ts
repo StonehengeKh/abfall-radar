@@ -2,6 +2,8 @@ import type { ServiceAreaCapabilityEvidence } from '@/src/schedule/capability';
 import type { AppSettings, ServiceAreaSelection } from '@/src/storage/settings';
 import {
   type CacheFailure,
+  CitiesResponseSchema,
+  type CitySummary,
   type CollectionEventsPayload,
   type GatewayFailure,
   type GatewayRequest,
@@ -11,12 +13,12 @@ import {
   type RestoredSchedulePayload,
   RestoredScheduleResponseSchema,
   ScheduleResponseSchema,
-  type ServiceAreaSummary,
-  ServiceAreasResponseSchema,
   type SelectionInvalidationPayload,
   SelectionInvalidationResponseSchema,
   type SelectionWritePayload,
   SelectionWriteResponseSchema,
+  type ServiceAreaSummary,
+  ServiceAreasResponseSchema,
   type SettingsFailure,
   SettingsResponseSchema,
   type SettingsWritePayload,
@@ -132,6 +134,8 @@ const send = async <Data>({
 };
 
 export interface MessagingClient {
+  /** The city catalogue, with the providers behind each city. */
+  listCities(): Promise<MessagingResult<CitySummary[]>>;
   listProviders(): Promise<MessagingResult<ProviderSummary[]>>;
   listServiceAreas(providerId: string): Promise<MessagingResult<ServiceAreaSummary[]>>;
   /**
@@ -190,12 +194,31 @@ export interface MessagingClient {
     readonly visibleWasteTypes: readonly AppSettings['visibleWasteTypes'][number][];
     readonly evidence?: ServiceAreaCapabilityEvidence | undefined;
   }): Promise<SettingsResult<SettingsWritePayload>>;
+  /**
+   * Changes the interface language, the appearance, or both, and nothing else. Answers with the settings as
+   * they are stored afterwards, so the surface adopts the value the worker actually wrote.
+   */
+  savePresentation(
+    update: Partial<Pick<AppSettings, 'locale' | 'appearance'>>,
+  ): Promise<SettingsResult<AppSettings>>;
   invalidateSelectionIfMatches(
     expectedSelection: ServiceAreaSelection,
   ): Promise<SettingsResult<SelectionInvalidationPayload>>;
 }
 
 export const createMessagingClient = (sendImpl: SendMessage = defaultSend): MessagingClient => ({
+  async listCities() {
+    return send({
+      request: { kind: 'list_cities' },
+      send: sendImpl,
+      parse: (reply) => {
+        const parsed = CitiesResponseSchema.safeParse(reply);
+
+        return parsed.success ? parsed.data : undefined;
+      },
+    });
+  },
+
   async listProviders() {
     return send({
       request: { kind: 'list_providers' },
@@ -291,6 +314,22 @@ export const createMessagingClient = (sendImpl: SendMessage = defaultSend): Mess
       send: sendImpl,
       parse: (reply) => {
         const parsed = SettingsWriteResponseSchema.safeParse(reply);
+
+        return parsed.success ? parsed.data : undefined;
+      },
+    });
+  },
+
+  async savePresentation(update) {
+    return sendLocal({
+      request: {
+        kind: 'save_presentation',
+        ...(update.locale === undefined ? {} : { locale: update.locale }),
+        ...(update.appearance === undefined ? {} : { appearance: update.appearance }),
+      },
+      send: sendImpl,
+      parse: (reply) => {
+        const parsed = SettingsResponseSchema.safeParse(reply);
 
         return parsed.success ? parsed.data : undefined;
       },
