@@ -1,28 +1,24 @@
-import { BrandMark } from '@abfall-radar/ui';
-import { Check, MapPin, RotateCcw } from 'lucide-react';
-import { type Ref, useId, useState } from 'react';
-import { AreaStatePanel } from '@/src/features/areas/area-state-panel';
-import {
-  type AreaCatalogueState,
-  areaStateProviderId,
-  areasOf,
-  offerableProviders,
-} from '@/src/hooks/use-catalogue';
+import { type Ref, useState } from 'react';
+import { AreaPicker } from '@/src/features/selection/area-picker';
+import { PopupHeader } from '@/src/features/shell/popup-header';
 import type {
-  ProviderSummary,
-  SelectionWriteOutcomeKind,
-  ServiceAreaSummary,
-} from '@/src/messaging/contract';
+  AreaCatalogueState,
+  CityCatalogueState,
+  ProviderCatalogueState,
+} from '@/src/hooks/use-catalogue';
+import { useCopy } from '@/src/i18n/copy';
+import type { SelectionWriteOutcomeKind, ServiceAreaSummary } from '@/src/messaging/contract';
 
 /**
  * The needs-selection surface.
  *
  * Its own small surface rather than a mode flag on the settings view: nothing is preselected, persisted,
- * or fetched on the user's behalf, so choosing an area is a distinct thing a person does once.
+ * or fetched on the user's behalf, so choosing a district is a distinct thing a person does once. The city
+ * comes first, then the operator only where the city has more than one, then the district — the questions
+ * the shared picker asks.
  *
- * A provider whose `sourceKind` is `demo` is filtered out **at the catalogue**, so none of its areas is
- * ever listed, reachable, or rendered here. That exclusion is stronger than unselectability and happens
- * earlier, which is why a demo area's capability is never what a user sees.
+ * A provider whose `sourceKind` is `demo` is filtered out **at the catalogue**, so none of its districts is
+ * ever listed, reachable, or rendered here, and no city is ever chosen on a person's behalf.
  *
  * Confirming is the one act on this surface that writes, and it is treated as one: awaited, reported, and
  * recoverable. A storage write can be refused or can fail, and a surface that navigated away regardless would
@@ -30,17 +26,12 @@ import type {
  */
 
 export interface NeedsSelectionViewProps {
-  readonly providers: readonly ProviderSummary[];
-  readonly areaState: AreaCatalogueState;
-  /** True while the provider catalogue itself is in flight. */
-  readonly isCatalogueLoading: boolean;
-  readonly errorMessage?: string | undefined;
-  /**
-   * Reads the provider catalogue again.
-   *
-   * The error message alone left a person with nothing to do but close and reopen the popup: the catalogue is
-   * read once on mount, so the surface that reported the failure could not ask for another attempt.
-   */
+  readonly cities: CityCatalogueState;
+  readonly catalogue: ProviderCatalogueState;
+  /** The district list of whichever operator the picker is asking about. */
+  readonly areaStateFor: (providerId: string | null) => AreaCatalogueState;
+  readonly onRetryCities: () => void;
+  /** Reads the provider catalogue again. */
   readonly onRetryCatalogue: () => void;
   readonly onRequestAreas: (providerId: string) => void;
   /** Starts one more area attempt after a failure. Reachable only from the failed state. */
@@ -64,38 +55,21 @@ export interface NeedsSelectionViewProps {
  */
 export type ConfirmSelectionOutcome = SelectionWriteOutcomeKind;
 
-const confirmErrorCopy: Record<Exclude<ConfirmSelectionOutcome, 'persisted'>, string> = {
-  rejected_unavailable:
-    'Für dieses Gebiet veröffentlicht der Entsorgungsbetrieb keinen offiziellen Kalender.',
-  rejected_unknown_capability:
-    'Das Gebiet konnte nicht geprüft werden. Bitte erneut versuchen, sobald die Verbindung steht.',
-};
-
-const STORAGE_ERROR =
-  'Die Auswahl konnte nicht gespeichert werden. Bitte erneut versuchen.' as const;
-
 export const NeedsSelectionView = ({
-  providers,
-  areaState,
-  isCatalogueLoading,
-  errorMessage,
+  cities,
+  catalogue,
+  areaStateFor,
+  onRetryCities,
   onRetryCatalogue,
   onRequestAreas,
   onRetryAreas,
   onConfirm,
   headingRef,
 }: NeedsSelectionViewProps) => {
-  const [chosenAreaId, setChosenAreaId] = useState<string | null>(null);
+  const { messages } = useCopy();
+  const [chosenArea, setChosenArea] = useState<ServiceAreaSummary | null>(null);
   const [isConfirming, setIsConfirming] = useState(false);
   const [confirmError, setConfirmError] = useState<string | null>(null);
-  const providerLabelId = useId();
-  const areaLabelId = useId();
-  const unavailableHintId = useId();
-
-  const offered = offerableProviders(providers);
-  const selectedProviderId = areaStateProviderId(areaState);
-  const areas = areasOf(areaState, selectedProviderId);
-  const chosenArea = areas.find((area) => area.id === chosenAreaId);
 
   /**
    * Awaits the write, then reports.
@@ -105,7 +79,7 @@ export const NeedsSelectionView = ({
    * so retrying is one press rather than a re-selection.
    */
   const handleConfirm = async () => {
-    if (chosenArea === undefined || isConfirming) {
+    if (chosenArea === null || isConfirming) {
       return;
     }
 
@@ -116,161 +90,85 @@ export const NeedsSelectionView = ({
       const outcome = await onConfirm(chosenArea);
 
       if (outcome !== 'persisted') {
-        setConfirmError(confirmErrorCopy[outcome]);
+        setConfirmError(
+          outcome === 'rejected_unavailable'
+            ? messages.selectionErrors.rejectedUnavailable
+            : messages.selectionErrors.rejectedUnknownCapability,
+        );
       }
     } catch {
       // Nothing about the error is surfaced: it could name an internal storage path.
-      setConfirmError(STORAGE_ERROR);
+      setConfirmError(messages.selectionErrors.storage);
     } finally {
       setIsConfirming(false);
     }
   };
 
   return (
-    <main className="min-h-full px-4 pb-4 pt-5 text-ar-text">
-      <header className="flex items-center gap-3">
-        <BrandMark />
-        <div className="min-w-0 flex-1">
-          <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-ar-brand">
-            AbfallRadar
-          </p>
-          {/* Programmatically focusable, never a stop in the tab order. */}
-          <h1
-            ref={headingRef}
-            tabIndex={-1}
-            className="truncate text-lg font-semibold tracking-tight outline-none"
-          >
-            Sammelgebiet wählen
-          </h1>
-        </div>
-      </header>
+    <main className="min-h-full px-4 pb-4 pt-4 text-ar-text">
+      <PopupHeader />
 
-      <p className="mt-4 text-sm text-ar-text-muted">
-        Wähle den Entsorgungsbetrieb und dein Sammelgebiet. Erst danach werden offizielle Termine
-        geladen.
-      </p>
+      {/* Programmatically focusable, never a stop in the tab order. */}
+      <h1
+        ref={headingRef}
+        tabIndex={-1}
+        className="mt-4 text-lg font-semibold tracking-tight break-words outline-none"
+      >
+        {messages.onboarding.heading}
+      </h1>
+      <p className="mt-1 text-sm text-ar-text-muted">{messages.onboarding.intro}</p>
 
-      <section className="mt-4 rounded-3xl border border-ar-border bg-ar-surface p-4 shadow-ar-sm">
-        <label className="flex items-center gap-2 text-sm font-semibold" htmlFor={providerLabelId}>
-          <MapPin size={17} className="text-ar-brand" />
-          Entsorgungsbetrieb
-        </label>
-        <select
-          id={providerLabelId}
-          className="mt-3 min-h-11 w-full rounded-2xl border border-ar-border bg-ar-surface-muted px-3.5 py-3 text-sm font-medium outline-none transition focus:border-ar-brand focus:ring-3 focus:ring-ar-brand-soft"
-          value={selectedProviderId ?? ''}
-          onChange={(event) => {
-            // Changing the provider clears the area, so an identifier is never carried across providers.
-            setChosenAreaId(null);
-            setConfirmError(null);
+      <AreaPicker
+        cities={cities}
+        catalogue={catalogue}
+        areaStateFor={areaStateFor}
+        initialCityId={null}
+        initialProviderId={null}
+        chosenAreaId={chosenArea?.id ?? null}
+        onChooseArea={(area) => {
+          setChosenArea(area);
+          setConfirmError(null);
+        }}
+        onResetArea={() => {
+          // Changing the city or the operator clears the district, so an identifier is never carried across.
+          setChosenArea(null);
+          setConfirmError(null);
+        }}
+        onRetryCities={onRetryCities}
+        onRetryCatalogue={onRetryCatalogue}
+        onRequestAreas={onRequestAreas}
+        onRetryAreas={onRetryAreas}
+      >
+        {/*
+          The confirmation, where the choice can be acted on rather than at the end of thirty-four districts.
 
-            if (event.target.value !== '') {
-              onRequestAreas(event.target.value);
-            }
-          }}
+          The website's confirmation bar, adapted to the popup: `position: sticky`, so it keeps its own place
+          after the list — the last district is never covered once the popup is scrolled to the bottom — while
+          riding the lower edge on the way there. It names what is chosen, because a person who picked a
+          district near the top and scrolled on would otherwise have to scroll back to see what the button
+          would confirm.
+        */}
+        <div
+          className="sticky bottom-0 z-10 -mx-4 mt-4 border-t border-ar-border bg-ar-surface/95 px-4 pt-3 pb-[calc(0.75rem+env(safe-area-inset-bottom,0px))] backdrop-blur"
+          data-testid="confirm-bar"
         >
-          <option value="" disabled>
-            Bitte wählen
-          </option>
-          {offered.map((provider) => (
-            <option key={provider.id} value={provider.id}>
-              {provider.name}
-            </option>
-          ))}
-        </select>
-
-        {isCatalogueLoading && (
-          <p className="mt-3 text-sm text-ar-text-muted">Daten werden geladen…</p>
-        )}
-
-        {errorMessage !== undefined && (
-          <>
-            <p className="mt-3 text-sm text-ar-danger" role="alert">
-              {errorMessage}
-            </p>
-            {/*
-              The catalogue is read once on mount, so without this the only way out of a failed read was to
-              close and reopen the popup. It retries the catalogue itself rather than anything downstream:
-              there is no confirmed provider yet, so there is nothing else to retry.
-            */}
-            <button
-              type="button"
-              className="mt-2 inline-flex min-h-11 items-center gap-1.5 rounded-2xl border border-ar-border bg-ar-surface px-3.5 py-2 text-sm font-semibold transition hover:border-ar-text-muted focus-visible:outline-ar-focus"
-              onClick={onRetryCatalogue}
-            >
-              <RotateCcw size={15} aria-hidden="true" />
-              Entsorgungsbetriebe erneut laden
-            </button>
-          </>
-        )}
-
-        {/* Every area-request state, including the failure and its retry, in the words the shared panel owns. */}
-        <AreaStatePanel state={areaState} providerId={selectedProviderId} onRetry={onRetryAreas} />
-      </section>
-
-      {areas.length > 0 && (
-        <section className="mt-3 rounded-3xl border border-ar-border bg-ar-surface p-4 shadow-ar-sm">
-          <p className="text-sm font-semibold" id={areaLabelId}>
-            Sammelgebiet
+          <p className="text-sm" data-testid="confirm-summary">
+            {chosenArea === null ? (
+              <span className="text-ar-text-muted">{messages.onboarding.noneSelected}</span>
+            ) : (
+              <>
+                <span className="text-ar-text-muted">{messages.onboarding.selected}: </span>
+                <span className="font-medium break-words text-ar-text">{chosenArea.name}</span>
+              </>
+            )}
           </p>
-          <p className="sr-only" id={unavailableHintId}>
-            Für dieses Gebiet veröffentlicht der Entsorgungsbetrieb keinen offiziellen Kalender.
-          </p>
-
-          <ul className="mt-2 space-y-2" aria-labelledby={areaLabelId}>
-            {areas.map((area) => {
-              const isUnavailable = area.collectionEvents.availability === 'unavailable';
-              const isChosen = area.id === chosenAreaId;
-
-              return (
-                <li key={area.id}>
-                  <button
-                    type="button"
-                    // A genuinely disabled control: not operable by pointer or keyboard, removed from the
-                    // tab order, and announced as unavailable. Appearance is never the mechanism — a row
-                    // that merely looks greyed while still activating on Enter is the failure mode being
-                    // ruled out here.
-                    disabled={isUnavailable}
-                    aria-pressed={isChosen}
-                    aria-describedby={isUnavailable ? unavailableHintId : undefined}
-                    className={[
-                      'flex min-h-11 w-full items-start gap-2 rounded-2xl border px-3.5 py-3 text-left transition focus-visible:outline-ar-focus',
-                      isChosen
-                        ? 'border-ar-brand bg-ar-brand-soft text-ar-brand-strong'
-                        : 'border-ar-border bg-ar-surface',
-                      isUnavailable ? 'cursor-not-allowed opacity-70' : '',
-                    ].join(' ')}
-                    onClick={() => {
-                      setChosenAreaId(area.id);
-                      setConfirmError(null);
-                    }}
-                  >
-                    {isChosen && <Check size={15} className="mt-0.5 shrink-0" />}
-                    <span className="min-w-0 flex-1">
-                      <span className="block truncate text-sm font-semibold">
-                        {area.locality} · {area.name}
-                      </span>
-                      {isUnavailable && (
-                        // Visible and explanatory rather than hidden: hiding it would imply the
-                        // municipality does not serve the area, which is a different and unfounded claim.
-                        <span className="mt-0.5 block text-xs text-ar-text-muted">
-                          Kein offizieller Kalender veröffentlicht
-                        </span>
-                      )}
-                    </span>
-                  </button>
-                </li>
-              );
-            })}
-          </ul>
-
           <button
             type="button"
-            className="mt-4 min-h-11 w-full rounded-2xl bg-ar-brand px-4 py-3.5 text-sm font-semibold text-ar-on-brand shadow-ar-brand transition hover:bg-ar-brand-strong focus-visible:outline-ar-focus disabled:cursor-not-allowed disabled:opacity-60"
-            disabled={chosenArea === undefined || isConfirming}
+            className="mt-2 min-h-11 w-full rounded-ar-md bg-ar-brand px-4 py-3.5 text-sm font-semibold text-ar-on-brand shadow-ar-brand transition hover:bg-ar-brand-strong focus-visible:outline-ar-focus disabled:cursor-not-allowed disabled:opacity-60 motion-reduce:transition-none"
+            disabled={chosenArea === null || isConfirming}
             onClick={() => void handleConfirm()}
           >
-            {isConfirming ? 'Auswahl wird gespeichert…' : 'Auswahl bestätigen'}
+            {isConfirming ? messages.onboarding.confirming : messages.onboarding.confirm}
           </button>
 
           {confirmError !== null && (
@@ -280,8 +178,8 @@ export const NeedsSelectionView = ({
               {confirmError}
             </p>
           )}
-        </section>
-      )}
+        </div>
+      </AreaPicker>
     </main>
   );
 };

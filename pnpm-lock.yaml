@@ -180,6 +180,9 @@ importers:
       '@abfall-radar/domain':
         specifier: workspace:*
         version: link:../../packages/domain
+      '@abfall-radar/schedule-format':
+        specifier: workspace:*
+        version: link:../../packages/schedule-format
       '@abfall-radar/ui':
         specifier: workspace:*
         version: link:../../packages/ui
@@ -246,6 +249,9 @@ importers:
       '@abfall-radar/domain':
         specifier: workspace:*
         version: link:../../packages/domain
+      '@abfall-radar/schedule-format':
+        specifier: workspace:*
+        version: link:../../packages/schedule-format
       '@abfall-radar/ui':
         specifier: workspace:*
         version: link:../../packages/ui
@@ -363,11 +369,30 @@ importers:
 
   packages/test-utils: {}
 
+  packages/schedule-format:
+    dependencies:
+      '@abfall-radar/domain':
+        specifier: workspace:*
+        version: link:../domain
+    devDependencies:
+      '@types/node':
+        specifier: 'catalog:'
+        version: 24.13.3
+      typescript:
+        specifier: 'catalog:'
+        version: 5.9.3
+      vitest:
+        specifier: 'catalog:'
+        version: 4.1.10(@types/node@24.13.3)(jsdom@29.1.1)(vite@8.1.5(@types/node@24.13.3)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.23.1)(yaml@2.9.0))
+
   packages/ui:
     dependencies:
       '@abfall-radar/domain':
         specifier: workspace:*
         version: link:../domain
+      '@abfall-radar/schedule-format':
+        specifier: workspace:*
+        version: link:../schedule-format
       lucide-react:
         specifier: 'catalog:'
         version: 1.26.0(react@19.2.8)

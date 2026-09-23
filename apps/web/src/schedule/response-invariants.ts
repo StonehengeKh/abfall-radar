@@ -1,3 +1,4 @@
+import { compareTimestamps, deriveSourceToday } from '@abfall-radar/schedule-format';
 import type {
   CollectionEventListResponse,
   CollectionEventTransport,
@@ -6,8 +7,6 @@ import type {
   Provider,
   ServiceArea,
 } from '@/src/adapters/schedule-gateway';
-import { deriveSourceToday } from '@/src/schedule/source-day';
-import { compareTimestamps } from '@/src/schedule/timestamp';
 
 /**
  * Web-owned invariants that the transport client deliberately does not check, because they compare

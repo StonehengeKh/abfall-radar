@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { createMessagingClient, type MessagingClient } from '@/src/messaging/client';
 import {
+  type CitySummary,
   failureSignature,
   type GatewayFailure,
   type ProviderSummary,
@@ -71,6 +72,9 @@ export type AreaCatalogueState =
    */
   | { readonly kind: 'not_offered'; readonly providerId: string };
 
+/** A provider nobody has asked about yet. One shared value, so a lookup miss keeps a stable identity. */
+const IDLE_AREAS: AreaCatalogueState = { kind: 'idle' };
+
 /** The provider an area state is about, or `null` when it is about nobody. */
 export const areaStateProviderId = (state: AreaCatalogueState): string | null =>
   state.kind === 'idle' ? null : state.providerId;
@@ -92,6 +96,40 @@ export const areasOf = (
 /** Demo data must never appear on a surface a person reads as official. */
 export const offerableProviders = (providers: readonly ProviderSummary[]): ProviderSummary[] =>
   providers.filter((provider) => provider.sourceKind !== 'demo');
+
+/** The city catalogue, so "not answered yet" and "could not be read" stay distinguishable. */
+export type CityCatalogueState =
+  | { readonly kind: 'loading' }
+  | { readonly kind: 'loaded'; readonly cities: readonly CitySummary[] }
+  | { readonly kind: 'failed'; readonly failure: GatewayFailure };
+
+/**
+ * The official providers a city may be served by: the ones the city lists **and** a successful provider
+ * catalogue offers as non-demo.
+ *
+ * Both reads have to agree, which is the same gate every other surface enforces — nothing is asked about a
+ * provider until a successful catalogue has confirmed it — applied to the providers the city names. A provider
+ * that disappeared from the catalogue between the two reads is therefore not offered, however the city still
+ * lists it.
+ */
+export const officialProvidersOf = (
+  city: CitySummary,
+  catalogue: ProviderCatalogueState,
+): ProviderSummary[] => {
+  if (catalogue.kind !== 'loaded') {
+    return [];
+  }
+
+  const offered = new Map(
+    offerableProviders(catalogue.providers).map((provider) => [provider.id, provider]),
+  );
+
+  return city.providers.flatMap((listed) => {
+    const provider = offered.get(listed.id);
+
+    return provider === undefined ? [] : [provider];
+  });
+};
 
 /** The provider catalogue itself, so "not answered yet" and "could not be read" stay distinguishable. */
 export type ProviderCatalogueState =
@@ -156,9 +194,23 @@ export interface UseCatalogueInput {
 }
 
 export interface UseCatalogueResult {
+  /** The city catalogue: the first choice a person makes. */
+  readonly cities: CityCatalogueState;
+  /** Reads the city catalogue again after a **failed** attempt. */
+  readonly retryCities: () => void;
   readonly catalogue: ProviderCatalogueState;
   readonly providers: readonly ProviderSummary[];
-  readonly areaState: AreaCatalogueState;
+  /**
+   * How far the district request for one provider has got.
+   *
+   * A lookup rather than one shared value, because two questions are asked of this hook at the same time and
+   * they are about different providers: what the confirmed selection's operator publishes, and what the
+   * operator a Settings draft is exploring publishes. Sharing one slot made the second answer overwrite the
+   * first — so abandoning the draft left the confirmed selection with no district list, and its city could no
+   * longer be derived. Each provider keeps its own entry, and a reply is filed under the provider it was asked
+   * about, so a late answer for an abandoned draft cannot land on anybody else's question.
+   */
+  readonly areaStateFor: (providerId: string | null) => AreaCatalogueState;
   /**
    * Requests the areas of a provider, **once**.
    *
@@ -185,20 +237,29 @@ export interface UseCatalogueResult {
    * always something a person did and never something a render did.
    */
   readonly retryAreas: (providerId: string) => void;
-  /** Drops whatever area list is held. Used when a provider stops being usable. */
+  /** Drops every area list held, for every provider. Used when a provider stops being usable. */
   readonly forgetAreas: () => void;
 }
 
 export const useCatalogue = ({ client }: UseCatalogueInput = {}): UseCatalogueResult => {
+  const [cities, setCities] = useState<CityCatalogueState>({ kind: 'loading' });
   const [catalogue, setCatalogue] = useState<ProviderCatalogueState>({ kind: 'loading' });
-  const [areaState, setAreaState] = useState<AreaCatalogueState>({ kind: 'idle' });
+  /** One entry per provider asked about. A provider with no entry has not been asked, which is `idle`. */
+  const [areasByProvider, setAreasByProvider] = useState<
+    Readonly<Record<string, AreaCatalogueState>>
+  >({});
 
   const messagingRef = useRef(client);
 
   messagingRef.current = client;
 
-  /** The newest area attempt. A reply carrying anything older is discarded. */
-  const latestAreaAttempt = useRef(0);
+  /**
+   * The newest area attempt **per provider**. A reply carrying anything older for that provider is discarded.
+   *
+   * Per provider rather than one counter, because two providers' requests are no longer alternatives: asking
+   * about a second one must not silence the first one's answer, only a newer attempt for the same provider may.
+   */
+  const areaAttempts = useRef<Record<string, number>>({});
 
   /**
    * Read inside `requestAreas` without making it a dependency.
@@ -211,22 +272,34 @@ export const useCatalogue = ({ client }: UseCatalogueInput = {}): UseCatalogueRe
 
   catalogueRef.current = catalogue;
 
-  const areaStateRef = useRef(areaState);
+  const areasRef = useRef(areasByProvider);
 
-  areaStateRef.current = areaState;
+  areasRef.current = areasByProvider;
+
+  /** The entry a provider has, or `idle` when it has none. `null` names nobody, which is also `idle`. */
+  const areaStateFor = useCallback(
+    (providerId: string | null): AreaCatalogueState =>
+      providerId === null ? IDLE_AREAS : (areasByProvider[providerId] ?? IDLE_AREAS),
+    [areasByProvider],
+  );
+
+  /** Files one provider's entry, leaving every other provider's exactly as it was. */
+  const fileAreaState = useCallback((providerId: string, next: AreaCatalogueState): void => {
+    setAreasByProvider((current) => ({ ...current, [providerId]: next }));
+  }, []);
 
   /**
    * The provider the newest area attempt was made for, recorded **as it is made**.
    *
-   * Distinct from `areaState` because that only tells the truth one commit later: it is assigned during
+   * Distinct from the filed entries because those only tell the truth one commit later: they are assigned during
    * render, so two calls in the same tick — App's hydration effect and the settings surface's effect both
    * landing in one commit for the same provider — each saw a state that still said `idle` and each issued a
    * request. Recording the attempt synchronously is what makes "once" mean once rather than "once per
    * commit".
    *
-   * `null` means no attempt has been made since the last `forgetAreas`.
+   * A provider is in the set from the moment its request is issued until the next `forgetAreas`.
    */
-  const issuedForRef = useRef<string | null>(null);
+  const issuedForRef = useRef<Set<string>>(new Set());
 
   /** The newest catalogue attempt. A reply carrying anything older is discarded. */
   const latestCatalogueAttempt = useRef(0);
@@ -281,10 +354,70 @@ export const useCatalogue = ({ client }: UseCatalogueInput = {}): UseCatalogueRe
     };
   }, [issueCatalogueRequest]);
 
+  /** The newest city-catalogue attempt. A reply carrying anything older is discarded. */
+  const latestCityAttempt = useRef(0);
+
+  /** Whether a city read is in flight, recorded as it starts, for the same double-press reason as above. */
+  const citiesInFlightRef = useRef(false);
+
+  const citiesRef = useRef(cities);
+
+  citiesRef.current = cities;
+
+  /**
+   * The one place a city-catalogue request is issued, shared by the mount effect and `retryCities`.
+   *
+   * The same state transitions as the provider catalogue — `loading`, then exactly one of `loaded` or
+   * `failed` — and the same protection: a reply from a superseded attempt is discarded.
+   */
+  const issueCitiesRequest = useCallback(() => {
+    latestCityAttempt.current += 1;
+    citiesInFlightRef.current = true;
+
+    const thisAttempt = latestCityAttempt.current;
+    const messaging = messagingRef.current ?? createMessagingClient();
+
+    setCities({ kind: 'loading' });
+
+    void messaging.listCities().then((result) => {
+      if (latestCityAttempt.current !== thisAttempt) {
+        return;
+      }
+
+      citiesInFlightRef.current = false;
+
+      setCities(
+        result.ok
+          ? { kind: 'loaded', cities: result.data }
+          : { kind: 'failed', failure: result.failure },
+      );
+    });
+  }, []);
+
+  useEffect(() => {
+    issueCitiesRequest();
+
+    return () => {
+      latestCityAttempt.current += 1;
+    };
+  }, [issueCitiesRequest]);
+
+  const retryCities = useCallback(() => {
+    if (citiesInFlightRef.current || citiesRef.current.kind !== 'failed') {
+      return;
+    }
+
+    issueCitiesRequest();
+  }, [issueCitiesRequest]);
+
   const forgetAreas = useCallback(() => {
-    latestAreaAttempt.current += 1;
-    issuedForRef.current = null;
-    setAreaState({ kind: 'idle' });
+    // Every provider's attempt is superseded, so no reply in flight can refile an entry that was just dropped.
+    for (const providerId of Object.keys(areaAttempts.current)) {
+      areaAttempts.current[providerId] = (areaAttempts.current[providerId] ?? 0) + 1;
+    }
+
+    issuedForRef.current = new Set();
+    setAreasByProvider({});
   }, []);
 
   /**
@@ -294,61 +427,64 @@ export const useCatalogue = ({ client }: UseCatalogueInput = {}): UseCatalogueRe
    * not offer — is stated once and cannot be bypassed by whichever of them a surface happens to call. What
    * differs between them is only *when* they are allowed to reach this, which is the guard each one owns.
    */
-  const issueAreaRequest = useCallback((providerId: string) => {
-    const offered = catalogueRef.current;
+  const issueAreaRequest = useCallback(
+    (providerId: string) => {
+      const offered = catalogueRef.current;
 
-    // Recorded before anything can await, so a second caller in this same tick is refused.
-    issuedForRef.current = providerId;
+      // Recorded before anything can await, so a second caller in this same tick is refused.
+      issuedForRef.current.add(providerId);
 
-    if (offered.kind !== 'loaded') {
-      // Nothing was established and nothing was asked, so this must not count as an attempt — otherwise the
-      // provider would be locked out of ever being requested once the catalogue does answer.
-      issuedForRef.current = null;
+      if (offered.kind !== 'loaded') {
+        // Nothing was established and nothing was asked, so this must not count as an attempt — otherwise the
+        // provider would be locked out of ever being requested once the catalogue does answer.
+        issuedForRef.current.delete(providerId);
 
-      // Nothing has confirmed this provider, so nothing is requested. The caller sees `idle` and can ask
-      // again once the catalogue answers, which is what the verification-driven effects above do.
-      return;
-    }
-
-    const provider = offered.providers.find((candidate) => candidate.id === providerId);
-
-    if (provider === undefined || provider.sourceKind === 'demo') {
-      // The mechanical half of the gate: no service-area request is issued for a provider the catalogue does
-      // not offer, whichever surface asked and whatever it believed.
-      latestAreaAttempt.current += 1;
-      setAreaState({ kind: 'not_offered', providerId });
-
-      return;
-    }
-
-    latestAreaAttempt.current += 1;
-
-    const thisAttempt = latestAreaAttempt.current;
-    const messaging = messagingRef.current ?? createMessagingClient();
-
-    setAreaState({ kind: 'loading', providerId });
-
-    void messaging.listServiceAreas(providerId).then((result) => {
-      // A reply from a superseded attempt is discarded, so an older provider's areas can never overwrite a
-      // newer selection.
-      if (latestAreaAttempt.current !== thisAttempt) {
+        // Nothing has confirmed this provider, so nothing is requested. The caller sees `idle` and can ask
+        // again once the catalogue answers, which is what the verification-driven effects above do.
         return;
       }
 
-      setAreaState(
-        result.ok
-          ? { kind: 'loaded', providerId, areas: result.data }
-          : { kind: 'failed', providerId, failure: result.failure },
-      );
-    });
-  }, []);
+      const provider = offered.providers.find((candidate) => candidate.id === providerId);
+      const thisAttempt = (areaAttempts.current[providerId] ?? 0) + 1;
+
+      areaAttempts.current[providerId] = thisAttempt;
+
+      if (provider === undefined || provider.sourceKind === 'demo') {
+        // The mechanical half of the gate: no service-area request is issued for a provider the catalogue does
+        // not offer, whichever surface asked and whatever it believed.
+        fileAreaState(providerId, { kind: 'not_offered', providerId });
+
+        return;
+      }
+
+      const messaging = messagingRef.current ?? createMessagingClient();
+
+      fileAreaState(providerId, { kind: 'loading', providerId });
+
+      void messaging.listServiceAreas(providerId).then((result) => {
+        // A reply from a superseded attempt for **this** provider is discarded — a retry's answer stands, and
+        // a reply that outlived a `forgetAreas` is dropped rather than refiling what was deliberately let go.
+        if (areaAttempts.current[providerId] !== thisAttempt) {
+          return;
+        }
+
+        fileAreaState(
+          providerId,
+          result.ok
+            ? { kind: 'loaded', providerId, areas: result.data }
+            : { kind: 'failed', providerId, failure: result.failure },
+        );
+      });
+    },
+    [fileAreaState],
+  );
 
   const requestAreas = useCallback(
     (providerId: string) => {
       // Already attempted for this provider, whatever came of it. An empty `loaded` list is an answer, not a
       // reason to ask again; an in-flight request is not a reason either; and neither is a failure — a failed
       // attempt is retried deliberately through `retryAreas`, never by a component rendering again.
-      if (issuedForRef.current === providerId) {
+      if (issuedForRef.current.has(providerId)) {
         return;
       }
 
@@ -381,7 +517,7 @@ export const useCatalogue = ({ client }: UseCatalogueInput = {}): UseCatalogueRe
 
   const retryAreas = useCallback(
     (providerId: string) => {
-      const current = areaStateRef.current;
+      const current = areasRef.current[providerId] ?? IDLE_AREAS;
 
       // Only a failed attempt for this same provider is retryable. Anything else is either already
       // answered, already in flight, or about somebody else, and re-requesting it would turn one press into
@@ -396,9 +532,11 @@ export const useCatalogue = ({ client }: UseCatalogueInput = {}): UseCatalogueRe
   );
 
   return {
+    cities,
+    retryCities,
     catalogue,
     providers: catalogue.kind === 'loaded' ? catalogue.providers : [],
-    areaState,
+    areaStateFor,
     requestAreas,
     retryProviders,
     retryAreas,

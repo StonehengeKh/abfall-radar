@@ -1,7 +1,7 @@
 import { type CollectionEvent, CollectionEventSchema } from '@abfall-radar/domain';
+import { compareIds, orderEvents } from '@abfall-radar/schedule-format';
 import { describe, expect, it } from 'vitest';
 import { toDomainCollectionEvent } from '@/src/adapters/collection-event';
-import { compareIds, orderEvents } from '@/src/schedule/event-order';
 import { curbside, dropOff, events } from '@/src/test/fixtures';
 
 const domain = (entries: ReadonlyArray<Record<string, unknown>>): CollectionEvent[] =>

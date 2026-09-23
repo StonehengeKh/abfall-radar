@@ -52,6 +52,10 @@ const createStubGateway = (restored: RestoredSchedulePayload | null) => {
     .fn<Gateway['invalidateCachedSchedule']>()
     .mockResolvedValue(undefined);
   const unreachable = { kind: 'network', operation: 'listProviders' } as const;
+  // Unreachable like every other read: a reminder never needs the city catalogue.
+  const listCities = vi
+    .fn<Gateway['listCities']>()
+    .mockResolvedValue({ ok: false, failure: { kind: 'network', operation: 'listCities' } });
   const listProviders = vi
     .fn<Gateway['listProviders']>()
     .mockResolvedValue({ ok: false, failure: unreachable });
@@ -65,6 +69,7 @@ const createStubGateway = (restored: RestoredSchedulePayload | null) => {
   return {
     gateway: {
       handle,
+      listCities,
       listProviders,
       listServiceAreas,
       listCollectionEvents,
@@ -1470,7 +1475,7 @@ describe('the instruction a notification carries', () => {
     const options = await notifiedFor(DROP_OFF, ['hazardous']);
 
     expect(options?.message).toContain('Rizzastraße Ecke Südallee');
-    expect(options?.message).toContain('11:00–13:00 (Europe/Berlin)');
+    expect(options?.message).toContain('11:00 UTC+01:00–13:00 UTC+01:00 (Europe/Berlin)');
   });
 
   it('still names the waste type of a mobile drop-off in its title', async () => {
@@ -1560,7 +1565,7 @@ describe('the window a mobile-drop-off notification states', () => {
       new Date('2026-01-19T18:00:00Z'),
     );
 
-    expect(message).toContain('10:00–12:00 (Europe/Berlin)');
+    expect(message).toContain('10:00 UTC+01:00–12:00 UTC+01:00 (Europe/Berlin)');
   });
 
   it('applies Berlin summer time in July', async () => {
@@ -1571,7 +1576,7 @@ describe('the window a mobile-drop-off notification states', () => {
       new Date('2026-07-19T18:00:00Z'),
     );
 
-    expect(message).toContain('11:00–13:00 (Europe/Berlin)');
+    expect(message).toContain('11:00 UTC+02:00–13:00 UTC+02:00 (Europe/Berlin)');
   });
 
   it('states both ends of the window, not only its start', async () => {
@@ -1710,7 +1715,7 @@ describe('the message a notification carries, decided by collection mode', () =>
   it('gives a drop-off its window, its place and appointment wording', () => {
     const message = notificationMessageFor(DROP_OFF);
 
-    expect(message).toContain('10:00–12:00 (Europe/Berlin)');
+    expect(message).toContain('10:00 UTC+01:00–12:00 UTC+01:00 (Europe/Berlin)');
     expect(message).toContain('Rizzastraße Ecke Südallee');
     expect(message).toContain('Mobile Annahmestelle');
     expect(message).toContain('Bitte selbst dorthin bringen.');

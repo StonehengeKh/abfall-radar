@@ -1,4 +1,5 @@
 import type { CollectionEvent } from '@abfall-radar/domain';
+import type { IsoDate } from '@abfall-radar/schedule-format';
 import type {
   ApiFailure,
   City,
@@ -8,7 +9,6 @@ import type {
   ScheduleRange,
   ServiceArea,
 } from '@/src/adapters/schedule-gateway';
-import type { IsoDate } from '@/src/schedule/source-day';
 
 /**
  * The application's state types and the one pure function that turns controller state into what is

@@ -1,16 +1,17 @@
 import { wasteLabels } from '@abfall-radar/domain';
 import type { MessagingClient } from '@/src/messaging/client';
 import type {
-  ServiceAreaCapability,
-  ServiceAreaCapabilityEvidence,
-} from '@/src/schedule/capability';
-import type {
+  CitySummary,
   CollectionEventPayload,
   ProviderSummary,
   RestoredSchedulePayload,
   SchedulePayload,
   ServiceAreaSummary,
 } from '@/src/messaging/contract';
+import type {
+  ServiceAreaCapability,
+  ServiceAreaCapabilityEvidence,
+} from '@/src/schedule/capability';
 
 /**
  * Fixtures for the extension's deterministic tests.
@@ -49,6 +50,14 @@ export const DEMO_PROVIDER: ProviderSummary = {
 
 export const CATALOGUE_WITH_DEMO: ProviderSummary[] = [DEMO_PROVIDER, OFFICIAL_PROVIDER];
 
+/** The city the official provider's districts belong to, as the API's `cityId` states it. */
+export const OFFICIAL_CITY_ID = 'koblenz';
+
+/** The city catalogue: one city, served by the one official provider. */
+export const CITY_CATALOGUE: CitySummary[] = [
+  { id: OFFICIAL_CITY_ID, name: 'Koblenz', providers: [OFFICIAL_PROVIDER] },
+];
+
 export const AVAILABLE_CAPABILITY = {
   availability: 'available',
   timeZone: 'Europe/Berlin',
@@ -60,6 +69,7 @@ export const UNAVAILABLE_CAPABILITY = { availability: 'unavailable' } as const;
 export const AVAILABLE_AREA: ServiceAreaSummary = {
   id: OFFICIAL_AREA_ID,
   providerId: OFFICIAL_PROVIDER_ID,
+  cityId: OFFICIAL_CITY_ID,
   locality: 'Koblenz',
   name: 'Stadtmitte',
   collectionEvents: AVAILABLE_CAPABILITY,
@@ -68,6 +78,7 @@ export const AVAILABLE_AREA: ServiceAreaSummary = {
 export const UNAVAILABLE_AREA: ServiceAreaSummary = {
   id: UNAVAILABLE_AREA_ID,
   providerId: OFFICIAL_PROVIDER_ID,
+  cityId: OFFICIAL_CITY_ID,
   locality: 'Koblenz',
   name: 'Oberwerth',
   collectionEvents: UNAVAILABLE_CAPABILITY,

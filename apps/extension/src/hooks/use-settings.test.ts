@@ -1,7 +1,6 @@
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { fakeBrowser } from 'wxt/testing';
-import { evidenceFor } from '@/src/test/fixtures';
 import type { MessagingClient } from '@/src/messaging/client';
 import {
   SETTINGS_CHANGED_NOTIFICATION,
@@ -15,6 +14,7 @@ import {
   readSettings,
   writeSettings,
 } from '@/src/storage/settings-repository';
+import { evidenceFor } from '@/src/test/fixtures';
 import { useSettings } from './use-settings';
 
 /**
@@ -51,6 +51,10 @@ const setStored = async (value: unknown): Promise<void> => {
  * be testing nothing about it. Every API read throws, because this hook must never perform one.
  */
 const workerBackedClient = (): MessagingClient => ({
+  listCities: async () => ({ ok: true as const, data: [] }),
+  savePresentation: async () => {
+    throw new Error('savePresentation is not used by this test');
+  },
   async listProviders(): Promise<never> {
     throw new Error('useSettings is not expected to read the provider catalogue.');
   },

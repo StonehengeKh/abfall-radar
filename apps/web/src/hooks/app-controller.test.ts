@@ -1,14 +1,14 @@
 // @vitest-environment node
 import { beforeEach, describe, expect, it } from 'vitest';
 import { RANGE_RECOVERY_INTERVAL_MS } from '@/src/schedule/range-recovery-coordinator';
-import type { FailureContext } from '@/src/schedule/view-state';
 import { SOURCE_DATE_WATCH_INTERVAL_MS } from '@/src/schedule/source-date-watchdog';
+import type { FailureContext } from '@/src/schedule/view-state';
 import {
   AREA_ID,
   area,
-  cities,
-  CITY_ID,
   areas,
+  CITY_ID,
+  cities,
   curbside,
   DEMO_PROVIDER,
   dropOff,

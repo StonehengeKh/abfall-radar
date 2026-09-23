@@ -266,54 +266,6 @@ export const undeclaredWasteTypes = (
   selected: readonly CollectionEvent['type'][],
 ): CollectionEvent['type'][] => selected.filter((type) => !provenance.coverage.includes(type));
 
-/**
- * The start of a timed window, or the empty string for an all-day collection.
- *
- * The empty string sorts before every ISO datetime, so an all-day collection precedes a timed one on the same
- * date without a branch deciding it. That is the honest order too: an all-day event names no time, so it cannot
- * be placed after something that does.
- */
-const startsAtOf = (event: CollectionEvent): string =>
-  event.timing.kind === 'time_window' ? event.timing.startsAt : '';
-
-/**
- * A total order over collection events, so which one comes "first" is a fact rather than an artefact of the
- * order a response happened to arrive in.
- *
- * Nothing in the contract promises the API, a cache restore, or a range intersection returns events in date
- * order. Two consumers depended on that anyway: the dashboard took the first element as the next collection,
- * and the reminder took the first match on the reminder date — so an unsorted response put the wrong date under
- * "Nächste Abholung", and two collections on one day could produce a notification naming either of them.
- *
- * Shared rather than duplicated per surface, because a second comparator is how the popup and the notification
- * come to disagree about which collection is next. Every comparison is on a validated field, and `id` is unique
- * per event, so the order is **total**: it does not depend on the sort being stable, and two runs over the same
- * set cannot disagree.
- */
-export const byDisplayOrder = (left: CollectionEvent, right: CollectionEvent): number => {
-  if (left.date !== right.date) {
-    // Calendar dates, compared lexicographically. Both are `YYYY-MM-DD`, so no instant is involved.
-    return left.date < right.date ? -1 : 1;
-  }
-
-  const leftStart = startsAtOf(left);
-  const rightStart = startsAtOf(right);
-
-  if (leftStart !== rightStart) {
-    return leftStart < rightStart ? -1 : 1;
-  }
-
-  if (left.type !== right.type) {
-    return left.type < right.type ? -1 : 1;
-  }
-
-  if (left.id === right.id) {
-    return 0;
-  }
-
-  return left.id < right.id ? -1 : 1;
-};
-
 /** The events a surface should show, filtered to what the user asked to see. */
 export const visibleEvents = (
   events: readonly CollectionEvent[],

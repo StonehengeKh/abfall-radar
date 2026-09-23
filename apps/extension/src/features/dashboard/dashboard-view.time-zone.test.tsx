@@ -12,13 +12,17 @@
  */
 process.env.TZ = 'America/New_York';
 
-const { render, screen } = await import('@testing-library/react');
+const { render, screen, within } = await import('@testing-library/react');
 const { describe, expect, it, vi } = await import('vitest');
 const { deriveScheduleView } = await import('@/src/schedule/view-state');
 const { curbsideEvent, restoredSchedule, schedule } = await import('@/src/test/fixtures');
 const { DashboardView } = await import('./dashboard-view');
 
 const referenceDate = new Date('2026-03-09T10:00:00Z');
+
+/** The shown period, as the shared source card states it. */
+const shownPeriod = (): HTMLElement =>
+  within(screen.getByTestId('provenance')).getByText(/^Angezeigter Zeitraum/);
 
 const renderView = (view: Parameters<typeof DashboardView>[0]['view']) => {
   render(
@@ -54,7 +58,7 @@ describe('in a device zone west of UTC', () => {
       }),
     );
 
-    const period = screen.getByText(/^Zeitraum/);
+    const period = shownPeriod();
 
     expect(period).toHaveTextContent('01.03.2026');
     expect(period).not.toHaveTextContent('28.02.2026');
@@ -74,7 +78,7 @@ describe('in a device zone west of UTC', () => {
       }),
     );
 
-    expect(screen.getByText(/^Zeitraum/)).toHaveTextContent('01.06.2026');
+    expect(shownPeriod()).toHaveTextContent('01.06.2026');
   });
 
   it('states the partial-cache end date without shifting it', () => {
@@ -111,7 +115,7 @@ describe('in a device zone west of UTC', () => {
     expect(description).not.toHaveTextContent('28.02.2026');
   });
 
-  it('still shows a retrieval timestamp in the device zone, because an instant is not a calendar date', () => {
+  it('states a retrieval instant in labelled UTC, the same on every device', () => {
     renderView(
       deriveScheduleView({
         hasSelection: true,
@@ -125,9 +129,14 @@ describe('in a device zone west of UTC', () => {
       }),
     );
 
-    // 02:00 UTC is 21:00 on 28 February in New York. That is correct for an instant and must not be
-    // "fixed" to UTC: a reader wants to know when it was retrieved in their own time.
-    expect(screen.getByText(/Aktuell abgerufen am/)).toHaveTextContent('28.02.2026');
+    /*
+     * The website's rule, now shared: an instant is written in UTC and says so. 02:00 UTC would be 21:00 on
+     * 28 February in New York; the explicit zone keeps it unambiguous without depending on the device.
+     */
+    const retrieved = within(screen.getByTestId('provenance')).getByText(/^Abgerufen:/);
+
+    expect(retrieved).toHaveTextContent('01.03.2026, 02:00 UTC');
+    expect(retrieved).not.toHaveTextContent('28.02.2026');
   });
 });
 
@@ -169,17 +178,24 @@ describe('relative day labels', () => {
     ).toContain('03-02');
   });
 
-  it('labels the source’s today as Heute, not Morgen', () => {
+  /** The source's today renders as the collection day itself: the status replaces the day count. */
+  const expectCollectionDay = (date: string) => {
+    expect(screen.getByTestId('collection-status')).toHaveTextContent('Abholung läuft');
+    expect(screen.getByTestId('next-collection-date')).toHaveTextContent(date);
+    expect(screen.queryByTestId('days-badge')).not.toBeInTheDocument();
+  };
+
+  it('labels the source’s today as today, not tomorrow', () => {
     renderAt(AT_BERLIN_MIDNIGHT_CROSSING, [curbsideEvent('2026-03-02')]);
 
-    expect(screen.getByText('Heute')).toBeInTheDocument();
-    expect(screen.queryByText('Morgen')).not.toBeInTheDocument();
+    expectCollectionDay('02.03.2026');
+    expect(screen.getByTestId('next-collection-date')).not.toHaveTextContent('morgen');
   });
 
-  it('labels the source’s tomorrow as Morgen', () => {
+  it('labels the source’s tomorrow as tomorrow', () => {
     renderAt(AT_BERLIN_MIDNIGHT_CROSSING, [curbsideEvent('2026-03-03')]);
 
-    expect(screen.getByText('Morgen')).toBeInTheDocument();
+    expect(screen.getByTestId('next-collection-date')).toHaveTextContent(/^morgen · /);
   });
 
   it('labels the device’s today as a past-free relative day rather than Heute', () => {
@@ -197,7 +213,7 @@ describe('relative day labels', () => {
     ]);
 
     // Two days after the source's today, listed under "Danach".
-    expect(screen.getByText('In 2 Tagen')).toBeInTheDocument();
+    expect(screen.getByTestId('event-row-day')).toHaveTextContent('Mittwoch · übermorgen');
   });
 
   it('falls back to a short date beyond a week, formatted as a calendar date', () => {
@@ -213,7 +229,7 @@ describe('relative day labels', () => {
 
     renderAt(AT_BERLIN_MIDNIGHT_CROSSING, [curbsideEvent('2026-03-02')]);
 
-    expect(screen.getByText('Heute')).toBeInTheDocument();
+    expectCollectionDay('02.03.2026');
 
     process.env.TZ = 'America/New_York';
   });

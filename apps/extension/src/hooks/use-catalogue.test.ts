@@ -163,6 +163,10 @@ const createStubClient = ({ replies = [AREAS_OK], catalogue }: AreaStubOptions =
   const client: MessagingClient = {
     ...settingsOperationsRefused,
     ...scheduleOperationsRefused,
+    listCities: async () => ({ ok: true as const, data: [] }),
+    savePresentation: async () => {
+      throw new Error('savePresentation is not used by this test');
+    },
     async listProviders() {
       return catalogue ?? { ok: true, data: CATALOGUE_WITH_DEMO };
     },
@@ -197,7 +201,10 @@ describe('requesting the areas of a provider', () => {
     });
 
     await waitFor(() => {
-      expect(result.current.areaState).toMatchObject({ kind: 'loaded', areas: MIXED_AREAS });
+      expect(result.current.areaStateFor(OFFICIAL_PROVIDER_ID)).toMatchObject({
+        kind: 'loaded',
+        areas: MIXED_AREAS,
+      });
     });
 
     expect(areaCalls).toEqual([OFFICIAL_PROVIDER_ID]);
@@ -215,7 +222,10 @@ describe('requesting the areas of a provider', () => {
     });
 
     // Recorded rather than left idle, so a caller that asked once does not keep asking.
-    expect(result.current.areaState).toEqual({ kind: 'not_offered', providerId: 'demo' });
+    expect(result.current.areaStateFor('demo')).toEqual({
+      kind: 'not_offered',
+      providerId: 'demo',
+    });
     expect(areaCalls).toEqual([]);
   });
 
@@ -235,7 +245,7 @@ describe('requesting the areas of a provider', () => {
     });
 
     await waitFor(() => {
-      expect(result.current.areaState.kind).toBe('loaded');
+      expect(result.current.areaStateFor(OFFICIAL_PROVIDER_ID).kind).toBe('loaded');
     });
 
     act(() => {
@@ -259,7 +269,7 @@ describe('a failed area request', () => {
     });
 
     await waitFor(() => {
-      expect(view.result.current.areaState.kind).toBe('failed');
+      expect(view.result.current.areaStateFor(OFFICIAL_PROVIDER_ID).kind).toBe('failed');
     });
 
     return view;
@@ -268,7 +278,7 @@ describe('a failed area request', () => {
   it('records the failure with the provider it is about', async () => {
     const { result, areaCalls } = await renderFailed({ replies: [AREAS_FAILED] });
 
-    expect(result.current.areaState).toEqual({
+    expect(result.current.areaStateFor(OFFICIAL_PROVIDER_ID)).toEqual({
       kind: 'failed',
       providerId: OFFICIAL_PROVIDER_ID,
       failure: AREA_FAILURE,
@@ -288,7 +298,7 @@ describe('a failed area request', () => {
     });
 
     expect(areaCalls).toHaveLength(1);
-    expect(result.current.areaState.kind).toBe('failed');
+    expect(result.current.areaStateFor(OFFICIAL_PROVIDER_ID).kind).toBe('failed');
   });
 
   it('issues exactly one more request per explicit retry', async () => {
@@ -300,13 +310,16 @@ describe('a failed area request', () => {
 
     // The state moves through loading, so the surface can say an attempt is running rather than repeating
     // the error while it is.
-    expect(result.current.areaState).toEqual({
+    expect(result.current.areaStateFor(OFFICIAL_PROVIDER_ID)).toEqual({
       kind: 'loading',
       providerId: OFFICIAL_PROVIDER_ID,
     });
 
     await waitFor(() => {
-      expect(result.current.areaState).toMatchObject({ kind: 'loaded', areas: MIXED_AREAS });
+      expect(result.current.areaStateFor(OFFICIAL_PROVIDER_ID)).toMatchObject({
+        kind: 'loaded',
+        areas: MIXED_AREAS,
+      });
     });
 
     expect(areaCalls).toEqual([OFFICIAL_PROVIDER_ID, OFFICIAL_PROVIDER_ID]);
@@ -323,7 +336,7 @@ describe('a failed area request', () => {
       expect(areaCalls).toHaveLength(2);
     });
     await waitFor(() => {
-      expect(result.current.areaState.kind).toBe('failed');
+      expect(result.current.areaStateFor(OFFICIAL_PROVIDER_ID).kind).toBe('failed');
     });
 
     act(() => {
@@ -357,7 +370,7 @@ describe('a failed area request', () => {
     });
 
     await waitFor(() => {
-      expect(result.current.areaState.kind).toBe('loaded');
+      expect(result.current.areaStateFor(OFFICIAL_PROVIDER_ID).kind).toBe('loaded');
     });
 
     act(() => {
@@ -410,25 +423,35 @@ describe('the provider catalogue itself', () => {
     });
 
     await waitFor(() => {
-      expect(result.current.areaState.kind).toBe('loaded');
+      expect(result.current.areaStateFor(OFFICIAL_PROVIDER_ID).kind).toBe('loaded');
     });
 
     act(() => {
       result.current.forgetAreas();
     });
 
-    expect(result.current.areaState).toEqual({ kind: 'idle' });
+    expect(result.current.areaStateFor(OFFICIAL_PROVIDER_ID)).toEqual({ kind: 'idle' });
   });
 
-  it('discards a reply for a provider that is no longer the newest', async () => {
-    // `runtime.sendMessage` offers the sender no cancellation, so an older provider's areas must be
-    // recognized as stale rather than overwriting a newer selection.
+  it('files each provider’s reply under that provider, whenever it arrives', async () => {
+    /*
+     * `runtime.sendMessage` offers the sender no cancellation, so a slow reply arrives whatever has happened
+     * since. It is filed under the provider it was asked about: a second provider's answer never lands on the
+     * first one's question, and the first one's late answer never lands on the second's.
+     *
+     * This is what lets two questions be open at once — the confirmed selection's operator and the operator a
+     * Settings draft is exploring — without either answer displacing the other.
+     */
     const areaCalls: string[] = [];
     let releaseFirst: (() => void) | undefined;
 
     const client: MessagingClient = {
       ...settingsOperationsRefused,
       ...scheduleOperationsRefused,
+      listCities: async () => ({ ok: true as const, data: [] }),
+      savePresentation: async () => {
+        throw new Error('savePresentation is not used by this test');
+      },
       async listProviders() {
         return { ok: true, data: [...CATALOGUE_WITH_DEMO, { ...OFFICIAL_PROVIDER, id: 'second' }] };
       },
@@ -464,15 +487,120 @@ describe('the provider catalogue itself', () => {
     });
 
     await waitFor(() => {
-      expect(result.current.areaState).toMatchObject({ kind: 'loaded', providerId: 'second' });
+      expect(result.current.areaStateFor('second')).toMatchObject({
+        kind: 'loaded',
+        providerId: 'second',
+      });
+    });
+
+    // The first provider is still waiting on its own answer, and is not described by the second's.
+    expect(result.current.areaStateFor(OFFICIAL_PROVIDER_ID)).toMatchObject({
+      kind: 'loading',
+      providerId: OFFICIAL_PROVIDER_ID,
     });
 
     releaseFirst?.();
+
+    await waitFor(() => {
+      expect(result.current.areaStateFor(OFFICIAL_PROVIDER_ID)).toMatchObject({
+        kind: 'loaded',
+        providerId: OFFICIAL_PROVIDER_ID,
+      });
+    });
+
+    // The late reply landed on its own question and left the other one exactly as it was.
+    expect(result.current.areaStateFor('second')).toMatchObject({
+      kind: 'loaded',
+      providerId: 'second',
+    });
+    expect(areaCalls).toEqual([OFFICIAL_PROVIDER_ID, 'second']);
+  });
+
+  it('keeps one provider’s answer while another is asked about, and drops both when forgotten', async () => {
+    // What a Settings draft does: explore a second operator while the confirmed selection's operator keeps
+    // the district list its city is derived from.
+    const { result } = renderCatalogue({
+      catalogue: {
+        ok: true,
+        data: [...CATALOGUE_WITH_DEMO, { ...OFFICIAL_PROVIDER, id: 'second' }],
+      },
+    });
+
+    await waitFor(() => {
+      expect(result.current.catalogue.kind).toBe('loaded');
+    });
+
+    act(() => {
+      result.current.requestAreas(OFFICIAL_PROVIDER_ID);
+    });
+
+    await waitFor(() => {
+      expect(result.current.areaStateFor(OFFICIAL_PROVIDER_ID).kind).toBe('loaded');
+    });
+
+    act(() => {
+      result.current.requestAreas('second');
+    });
+
+    await waitFor(() => {
+      expect(result.current.areaStateFor('second').kind).toBe('loaded');
+    });
+
+    expect(result.current.areaStateFor(OFFICIAL_PROVIDER_ID)).toMatchObject({ kind: 'loaded' });
+
+    // Forgetting is about every provider: a provider that may not be used must leave nothing behind.
+    act(() => {
+      result.current.forgetAreas();
+    });
+
+    expect(result.current.areaStateFor(OFFICIAL_PROVIDER_ID)).toEqual({ kind: 'idle' });
+    expect(result.current.areaStateFor('second')).toEqual({ kind: 'idle' });
+  });
+
+  it('does not refile an answer that arrives after it was forgotten', async () => {
+    let release: (() => void) | undefined;
+    const client: MessagingClient = {
+      ...settingsOperationsRefused,
+      ...scheduleOperationsRefused,
+      listCities: async () => ({ ok: true as const, data: [] }),
+      savePresentation: async () => {
+        throw new Error('savePresentation is not used by this test');
+      },
+      async listProviders() {
+        return { ok: true, data: CATALOGUE_WITH_DEMO };
+      },
+      async listServiceAreas(providerId) {
+        await new Promise<void>((resolve) => {
+          release = resolve;
+        });
+
+        return { ok: true, data: [{ ...AVAILABLE_AREA, providerId }] };
+      },
+    };
+
+    const { result } = renderHook(() => useCatalogue({ client }));
+
+    await waitFor(() => {
+      expect(result.current.catalogue.kind).toBe('loaded');
+    });
+
+    act(() => {
+      result.current.requestAreas(OFFICIAL_PROVIDER_ID);
+    });
+
+    await waitFor(() => {
+      expect(release).toBeDefined();
+    });
+
+    act(() => {
+      result.current.forgetAreas();
+    });
+
+    release?.();
     await act(async () => {});
 
-    // The superseded first reply has now arrived and must not have replaced the newer provider's answer.
-    expect(result.current.areaState).toMatchObject({ kind: 'loaded', providerId: 'second' });
-    expect(areaCalls).toEqual([OFFICIAL_PROVIDER_ID, 'second']);
+    // The provider was let go deliberately; an answer in flight must not bring its areas back.
+    expect(result.current.areaStateFor(OFFICIAL_PROVIDER_ID)).toEqual({ kind: 'idle' });
   });
 });
 
@@ -491,6 +619,10 @@ describe('a failed provider catalogue', () => {
     const client: MessagingClient = {
       ...settingsOperationsRefused,
       ...scheduleOperationsRefused,
+      listCities: async () => ({ ok: true as const, data: [] }),
+      savePresentation: async () => {
+        throw new Error('savePresentation is not used by this test');
+      },
       async listProviders() {
         calls.push(calls.length);
 
@@ -599,7 +731,10 @@ describe('a failed provider catalogue', () => {
     });
 
     await waitFor(() => {
-      expect(result.current.areaState).toMatchObject({ kind: 'loaded', areas: MIXED_AREAS });
+      expect(result.current.areaStateFor(OFFICIAL_PROVIDER_ID)).toMatchObject({
+        kind: 'loaded',
+        areas: MIXED_AREAS,
+      });
     });
   });
 

@@ -1,19 +1,19 @@
+import {
+  dayUnitLabel,
+  formatCalendarDate,
+  formatDayCount,
+  formatLongWeekday,
+  formatRelativeDay,
+  formatWeekday,
+  formatWeekdayCalendarDate,
+  isNumericRelativeDay,
+  isRelativeDay,
+} from '@abfall-radar/schedule-format';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { AppShell } from '@/src/app/app';
 import { LocaleProvider } from '@/src/i18n/context';
-import {
-  dayUnitLabel,
-  formatCalendarDate,
-  formatDayCount,
-  formatRelativeDay,
-  formatLongWeekday,
-  formatWeekday,
-  formatWeekdayCalendarDate,
-  isNumericRelativeDay,
-  isRelativeDay,
-} from '@/src/i18n/format';
 import {
   DEFAULT_LOCALE,
   readStoredLocale,
@@ -27,8 +27,8 @@ import {
   AREA_ID,
   area,
   areas,
-  CITY_ID,
   CATALOGUE_SINGLE,
+  CITY_ID,
   curbside,
   dropOff,
   events,

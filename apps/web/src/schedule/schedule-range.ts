@@ -1,5 +1,5 @@
+import { addCalendarDays, type IsoDate } from '@abfall-radar/schedule-format';
 import type { ScheduleRange } from '@/src/adapters/schedule-gateway';
-import { addCalendarDays, type IsoDate } from '@/src/schedule/source-day';
 
 /** A product choice, not a contract constraint. */
 export const TARGET_WINDOW_DAYS = 90;

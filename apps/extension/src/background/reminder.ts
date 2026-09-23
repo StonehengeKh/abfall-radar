@@ -1,16 +1,15 @@
 import { type CollectionEvent, wasteLabels } from '@abfall-radar/domain';
+import { compareEvents, formatCollectionWindow } from '@abfall-radar/schedule-format';
 import { tryToDomainCollectionEvents } from '@/src/adapters/collection-event';
 import type { Gateway } from '@/src/background/gateway';
 import type { CollectionEventPayload, ScheduleProvenance } from '@/src/messaging/contract';
 import { isAvailable, type SourceWindow, toSourceCalendar } from '@/src/schedule/capability';
-import { formatCollectionWindow } from '@/src/schedule/collection-window';
 import {
   addCalendarDays,
   deriveLocalDate,
   deriveTargetRange,
   isWithinRange,
 } from '@/src/schedule/schedule-range';
-import { byDisplayOrder } from '@/src/schedule/view-state';
 import { recordReminderShown, toReminderKey, wasReminderShown } from '@/src/storage/reminder-state';
 import type { AppSettings, ServiceAreaSelection } from '@/src/storage/settings';
 import { invalidateSelectionIfMatches, readSettingsState } from '@/src/storage/settings-repository';
@@ -185,15 +184,16 @@ const dueCollection = (
    *
    * Ordered before choosing, because more than one visible collection can fall on the same day. Taking the
    * first match meant the notification named whichever waste type the response happened to list first, so two
-   * runs over the same data could announce different things. The order is shared with the dashboard, so the
-   * collection the notification names is the one the popup calls next.
+   * runs over the same data could announce different things. The order is the product's one total event order
+   * from `@abfall-radar/schedule-format` — the same one the popup and the website feature by — so the
+   * collection the notification names is the one both of them call next.
    */
   const due = events
     .filter(
       (candidate) =>
         candidate.date === reminderDate && settings.visibleWasteTypes.includes(candidate.type),
     )
-    .sort(byDisplayOrder);
+    .sort(compareEvents);
 
   return due[0] ?? null;
 };
@@ -396,7 +396,7 @@ export const notificationMessageFor = (due: CollectionEvent): string | null => {
         return null;
       }
 
-      return `Mobile Annahmestelle: ${due.location.name}. Geöffnet ${window}. Bitte selbst dorthin bringen.`;
+      return `Mobile Annahmestelle: ${due.location.name}. Geöffnet ${window.text}. Bitte selbst dorthin bringen.`;
     }
   }
 };

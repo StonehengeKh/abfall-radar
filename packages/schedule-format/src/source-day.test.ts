@@ -5,7 +5,7 @@ import {
   isUpcoming,
   relativeDayLabel,
   startOfSourceDay,
-} from '@/src/schedule/source-day';
+} from './source-day';
 
 const at = (iso: string): Date => new Date(iso);
 

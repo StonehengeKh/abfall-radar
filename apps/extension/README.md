@@ -47,11 +47,21 @@ flowchart TD
 
 | Request | Performs |
 | --- | --- |
+| `list_cities` | `GET /api/v1/cities` |
 | `list_providers` | `GET /api/v1/providers` |
 | `list_service_areas` | `GET /api/v1/providers/{providerId}/service-areas` |
 | `list_collection_events` | `GET .../collection-events?from&to` |
 | `restore_cached_schedule` | **No request.** Reads the local cache only. |
 | `invalidate_cached_schedule` | **No request.** Drops one local cache entry. |
+| `save_presentation` | **No request.** Writes the language and appearance only. |
+
+Settings intents — `read_settings`, `select_service_area`, `save_settings`,
+`invalidate_selection_if_matches` and `save_presentation` — make no request either: they are the
+repository's operations, performed inside the worker's serialized mutation queue.
+
+`save_presentation` is deliberately narrow. It rereads the stored value and writes **only** the fields it
+carries, so a Settings draft saved from one context cannot revert a language or appearance chosen in
+another, and neither can revert the other's fields.
 
 `restore_cached_schedule` deliberately accepts no `from` or `to`: the worker derives the window from the
 cached entry's own capability snapshot, so a caller cannot ask for a range the cache was never evaluated
@@ -223,7 +233,42 @@ popup and the background path go through it, because a second raw reader is how 
 reaches a product surface. It also refuses to persist a selection for an area whose capability says no
 calendar is published, so that guarantee does not rest on the UI.
 
-The only automatic migration is the verified mapping recorded in
+### The current shape, version 3
+
+| Field | Added | Default |
+| --- | --- | --- |
+| `selection` | v2 | `null` |
+| `remindersEnabled`, `reminderDaysBefore`, `reminderTime` | v1 | unchanged |
+| `visibleWasteTypes` | v1 | unchanged |
+| `locale` | **v3** | `'de'` |
+| `appearance` | **v3** | `'system'` |
+
+Version 3 added the interface language and the appearance
+([ADR 0004 addendum 1](../../docs/decisions/0004-addendum-1-extension-web-alignment.md)). The selection
+keeps its version-2 shape: the city is **not** stored, it is derived from the district when the selection
+is revalidated.
+
+### Migration paths
+
+Every migration runs **locally, on read, making no request**, and each is idempotent — reopening the
+popup never resets a preference.
+
+| Stored value | Becomes |
+| --- | --- |
+| Unversioned legacy record | The district mapping below, plus the version-3 defaults |
+| Version 2 | Every stored value kept, plus `locale: 'de'` and `appearance: 'system'` |
+| Version 3 | Returned as it is |
+| A newer version | **Refused and left intact** — the popup reports it as unsupported, and nothing is written |
+| Nothing stored, or content no schema accepts | Defaults **in memory** for this session, and nothing is written: the stored value, whatever it is, is left exactly as it is. The read itself succeeded, so the popup is `ready` and usable |
+
+A **storage read that fails** is a different thing from content this build cannot parse. When the raw read
+rejects, nothing is parsed, defaulted or written: the failure is reported in the settings command's own
+family and the popup enters its terminal `unreadable` state rather than presenting defaults as a
+successful read. Malformed content never reaches that state — it is a successful read of something
+unusable, so this build works from defaults for the session and leaves the record untouched rather than
+replacing it with a guess, which would record a failed read as a completed migration.
+
+The district mapping for an unversioned record is the verified one recorded in
 [AR-003](../../docs/tasks/AR-003-official-ics-provider.md):
 
 | Legacy `districtId` | Migrated selection |
@@ -233,8 +278,8 @@ The only automatic migration is the verified mapping recorded in
 
 No other legacy identifier has a verified official counterpart, so none is invented: mapping by name
 similarity would silently move someone to an area nobody checked, and a wrong collection area produces
-confidently wrong dates. Unrelated settings are preserved, and the new version is written **only** after
-a successful migration.
+confidently wrong dates. Unrelated settings are preserved in every path, and the new version is written
+**only** after a successful migration.
 
 ## Unavailable service areas
 
@@ -333,8 +378,9 @@ src/
   adapters/            Transport-to-domain mapping, validated through the domain schema
   background/          The gateway, its logging seam, and the reminder path
   config/              Build-time API origin, the derived manifest, and the release gate
-  features/            Dashboard, settings, and the needs-selection surface
+  features/            Dashboard, settings, onboarding, the shared district picker, the popup header
   hooks/               Settings, catalogue, and schedule orchestration
+  i18n/                The popup's own copy in four languages, and the presentation context
   messaging/           The typed message contract and the UI-side client
   schedule/            Capability, range derivation, intersection, and view-state derivation
   storage/             Versioned settings, the sole repository, the schedule cache, reminder state
@@ -357,6 +403,10 @@ unchanged.
   silent for a screen-reader user.
 - Every control has an accessible name and visible focus; primary touch targets stay at least 44 by
   44 CSS pixels.
+- The district list is one choice, so it is one tab stop: `Tab` enters it at the chosen district (or the
+  first selectable one), the arrow keys, `Home` and `End` move within it, and the next `Tab` reaches the
+  confirmation. Focus moves without choosing; `Enter`, `Space` or a pointer chooses. An operator that
+  publishes thirty-four districts therefore costs one keystroke to leave, not thirty-three.
 - Only the semantic tokens from `@abfall-radar/ui` are used.
 - Code, comments, tests, documentation, and identifiers are English. User-visible copy is German,
   matching the existing product copy until a localization layer exists.

@@ -4,8 +4,8 @@ import { toCacheKey } from './schedule-cache';
 import {
   clearScheduleInvalidation,
   isScheduleInvalidated,
-  markScheduleInvalidated,
   MAX_TOMBSTONES,
+  markScheduleInvalidated,
   scheduleInvalidationToken,
 } from './schedule-tombstone';
 

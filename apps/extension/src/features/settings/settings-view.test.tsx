@@ -2,7 +2,12 @@ import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 import { fakeBrowser } from 'wxt/testing';
-import type { AreaCatalogueState } from '@/src/hooks/use-catalogue';
+import type {
+  AreaCatalogueState,
+  CityCatalogueState,
+  ProviderCatalogueState,
+} from '@/src/hooks/use-catalogue';
+import { PresentationProvider } from '@/src/i18n/copy';
 import type { ServiceAreaSummary } from '@/src/messaging/contract';
 import type { AppSettings } from '@/src/storage/settings';
 import { defaultSettings } from '@/src/storage/settings';
@@ -14,11 +19,13 @@ import {
 } from '@/src/storage/settings-repository';
 import {
   CATALOGUE_WITH_DEMO,
+  evidenceForArea,
   MIXED_AREAS,
   OFFICIAL_AREA_ID,
+  OFFICIAL_CITY_ID,
+  OFFICIAL_PROVIDER,
   OFFICIAL_PROVIDER_ID,
   UNAVAILABLE_AREA,
-  evidenceForArea,
   UNAVAILABLE_AREA_ID,
 } from '@/src/test/fixtures';
 import { SettingsView } from './settings-view';
@@ -34,6 +41,9 @@ const OTHER_PROVIDER_ID = 'muelheim-betrieb';
 
 const OTHER_AREA_ID = 'muelheim-mitte';
 
+/** The second offered provider's city. Each city here has one official operator, so choosing a city chooses it. */
+const OTHER_CITY_ID = 'muelheim';
+
 /** A second offered provider, so a provider change has somewhere to go. */
 const OTHER_PROVIDER = {
   id: OTHER_PROVIDER_ID,
@@ -44,6 +54,7 @@ const OTHER_PROVIDER = {
 const OTHER_AREA = {
   id: OTHER_AREA_ID,
   providerId: OTHER_PROVIDER_ID,
+  cityId: 'muelheim',
   locality: 'Mülheim',
   name: 'Mitte',
   collectionEvents: {
@@ -54,6 +65,16 @@ const OTHER_AREA = {
 } as const;
 
 const PROVIDERS = [...CATALOGUE_WITH_DEMO, OTHER_PROVIDER];
+
+const CATALOGUE: ProviderCatalogueState = { kind: 'loaded', providers: PROVIDERS };
+
+const CITIES: CityCatalogueState = {
+  kind: 'loaded',
+  cities: [
+    { id: OFFICIAL_CITY_ID, name: 'Koblenz', providers: [OFFICIAL_PROVIDER] },
+    { id: OTHER_CITY_ID, name: 'Mülheim', providers: [OTHER_PROVIDER] },
+  ],
+};
 
 /** The selection stored when Settings opens, and therefore the premise every draft here is built on. */
 const OFFICIAL_SELECTION = {
@@ -87,6 +108,8 @@ interface RenderOptions {
   /** Where the area request has got to when Settings opens. */
   readonly areaState?: AreaCatalogueState;
   readonly onSave?: Parameters<typeof SettingsView>[0]['onSave'];
+  /** The stored selection's city as the popup derived it; `null` while it is not known. */
+  readonly initialCityId?: string | null;
 }
 
 /**
@@ -101,6 +124,7 @@ interface RenderOptions {
 const renderView = ({
   areaState = loadedFor(OFFICIAL_PROVIDER_ID, MIXED_AREAS),
   onSave,
+  initialCityId = OFFICIAL_CITY_ID,
 }: RenderOptions = {}) => {
   const onCancel = vi.fn();
   const onRequestAreas = vi.fn();
@@ -114,9 +138,13 @@ const renderView = ({
 
   const element = (state: AreaCatalogueState) => (
     <SettingsView
-      providers={PROVIDERS}
-      areaState={state}
+      cities={CITIES}
+      catalogue={CATALOGUE}
+      areaStateFor={() => state}
       initialSettings={STORED}
+      initialCityId={initialCityId}
+      onRetryCities={vi.fn()}
+      onRetryCatalogue={vi.fn()}
       onCancel={onCancel}
       onSave={save}
       onRequestAreas={onRequestAreas}
@@ -142,9 +170,14 @@ const renderView = ({
   };
 };
 
-const providerSelect = () => screen.getByRole('combobox', { name: /Entsorgungsbetrieb/ });
+/**
+ * Where a provider change is made: the city. Each city in these fixtures has exactly one official operator, so
+ * a change of city is a change of provider, exactly as it is for a person.
+ */
+const citySelect = () => screen.getByRole('combobox', { name: /Stadt/ });
 
-const areaButton = (name: RegExp) => screen.getByRole('button', { name });
+/** A district in the list: one option of the single-choice group. */
+const areaButton = (name: RegExp) => screen.getByRole('option', { name });
 
 const saveButton = () => screen.getByRole('button', { name: 'Einstellungen speichern' });
 
@@ -199,7 +232,7 @@ describe('the draft is not persisted until Save', () => {
     await writeSettings(STORED);
     renderView();
 
-    await user.selectOptions(providerSelect(), OTHER_PROVIDER_ID);
+    await user.selectOptions(citySelect(), OTHER_CITY_ID);
 
     // The drafted area is cleared, but the persisted selection is untouched.
     expect(await storedValue()).toEqual(STORED);
@@ -216,7 +249,7 @@ describe('Back discards the whole draft', () => {
     const { onCancel, save, answerWith } = renderView();
 
     // A -> choose B -> Back.
-    await user.selectOptions(providerSelect(), OTHER_PROVIDER_ID);
+    await user.selectOptions(citySelect(), OTHER_CITY_ID);
     // The catalogue answers for the newly drafted provider, as it does in the product.
     answerWith(loadedFor(OTHER_PROVIDER_ID, [OTHER_AREA]));
     await user.click(areaButton(/Mitte/));
@@ -256,7 +289,7 @@ describe('Save persists the whole value in one operation', () => {
 
     const { save, answerWith } = renderView();
 
-    await user.selectOptions(providerSelect(), OTHER_PROVIDER_ID);
+    await user.selectOptions(citySelect(), OTHER_CITY_ID);
     answerWith(loadedFor(OTHER_PROVIDER_ID, [OTHER_AREA]));
     await user.click(areaButton(/Mitte/));
     await user.click(screen.getByRole('button', { name: 'Biotonne' }));
@@ -295,7 +328,7 @@ describe('Save persists the whole value in one operation', () => {
 
     const { answerWith } = renderView();
 
-    await user.selectOptions(providerSelect(), OTHER_PROVIDER_ID);
+    await user.selectOptions(citySelect(), OTHER_CITY_ID);
     answerWith(loadedFor(OTHER_PROVIDER_ID, [OTHER_AREA]));
     await user.click(areaButton(/Mitte/));
     await user.click(saveButton());
@@ -352,19 +385,19 @@ describe('the provider draft', () => {
     // The areas list has not caught up yet, which is exactly the pending state.
     renderView();
 
-    await user.selectOptions(providerSelect(), OTHER_PROVIDER_ID);
+    await user.selectOptions(citySelect(), OTHER_CITY_ID);
 
-    expect(providerSelect()).toHaveValue(OTHER_PROVIDER_ID);
+    expect(citySelect()).toHaveValue(OTHER_CITY_ID);
     // No area of the new provider is offered yet, and none is drafted.
-    expect(screen.queryByRole('button', { name: /Mitte/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole('option', { name: /Mitte/ })).not.toBeInTheDocument();
     expect(saveButton()).toBeEnabled();
   });
 
   it('starts from the persisted provider', () => {
     renderView();
 
-    expect(providerSelect()).toHaveValue(OFFICIAL_PROVIDER_ID);
-    expect(areaButton(/Stadtmitte/)).toHaveAttribute('aria-pressed', 'true');
+    expect(citySelect()).toHaveValue(OFFICIAL_CITY_ID);
+    expect(areaButton(/Stadtmitte/)).toHaveAttribute('aria-selected', 'true');
   });
 
   it('clears the drafted area when the provider changes', async () => {
@@ -372,13 +405,13 @@ describe('the provider draft', () => {
 
     const { answerWith } = renderView();
 
-    expect(areaButton(/Stadtmitte/)).toHaveAttribute('aria-pressed', 'true');
+    expect(areaButton(/Stadtmitte/)).toHaveAttribute('aria-selected', 'true');
 
-    await user.selectOptions(providerSelect(), OTHER_PROVIDER_ID);
+    await user.selectOptions(citySelect(), OTHER_CITY_ID);
     answerWith(loadedFor(OTHER_PROVIDER_ID, [OTHER_AREA]));
 
     // An identifier is never carried across providers, and the new provider's area is not preselected.
-    expect(areaButton(/Mitte/)).toHaveAttribute('aria-pressed', 'false');
+    expect(areaButton(/Mitte/)).toHaveAttribute('aria-selected', 'false');
   });
 
   it('offers only the areas of the provider being edited', async () => {
@@ -386,15 +419,15 @@ describe('the provider draft', () => {
 
     const { answerWith } = renderView();
 
-    await user.selectOptions(providerSelect(), OTHER_PROVIDER_ID);
+    await user.selectOptions(citySelect(), OTHER_CITY_ID);
 
     // Not selectable the moment the provider changes, before any answer arrives: the state on hand is about
     // the previous provider, and a list is only ever offered for the provider it belongs to.
-    expect(screen.queryByRole('button', { name: /Stadtmitte/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole('option', { name: /Stadtmitte/ })).not.toBeInTheDocument();
 
     answerWith(loadedFor(OTHER_PROVIDER_ID, [OTHER_AREA]));
 
-    expect(screen.queryByRole('button', { name: /Stadtmitte/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole('option', { name: /Stadtmitte/ })).not.toBeInTheDocument();
     expect(areaButton(/Mitte/)).toBeInTheDocument();
   });
 
@@ -405,7 +438,7 @@ describe('the provider draft', () => {
 
     const { save } = renderView();
 
-    await user.selectOptions(providerSelect(), OTHER_PROVIDER_ID);
+    await user.selectOptions(citySelect(), OTHER_CITY_ID);
     await user.click(saveButton());
 
     // The drafted selection is null, so the saved value carries no selection rather than a mismatched pair.
@@ -425,11 +458,11 @@ describe('the provider draft', () => {
 
     const { save, onRequestAreas, answerWith } = renderView();
 
-    await user.selectOptions(providerSelect(), OTHER_PROVIDER_ID);
-    await user.selectOptions(providerSelect(), OFFICIAL_PROVIDER_ID);
-    await user.selectOptions(providerSelect(), OTHER_PROVIDER_ID);
+    await user.selectOptions(citySelect(), OTHER_CITY_ID);
+    await user.selectOptions(citySelect(), OFFICIAL_CITY_ID);
+    await user.selectOptions(citySelect(), OTHER_CITY_ID);
 
-    expect(providerSelect()).toHaveValue(OTHER_PROVIDER_ID);
+    expect(citySelect()).toHaveValue(OTHER_CITY_ID);
     expect(onRequestAreas).toHaveBeenLastCalledWith(OTHER_PROVIDER_ID);
 
     // The catalogue answers for the newest provider only. An answer for the one in the middle would be
@@ -437,7 +470,7 @@ describe('the provider draft', () => {
     answerWith(loadedFor(OTHER_PROVIDER_ID, [OTHER_AREA]));
 
     // Only the newest provider's areas are offered.
-    expect(screen.queryByRole('button', { name: /Stadtmitte/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole('option', { name: /Stadtmitte/ })).not.toBeInTheDocument();
 
     await user.click(areaButton(/Mitte/));
     await user.click(saveButton());
@@ -470,9 +503,9 @@ describe('an unavailable area in Settings', () => {
 
     await user.click(areaButton(/Oberwerth/));
 
-    expect(areaButton(/Oberwerth/)).toHaveAttribute('aria-pressed', 'false');
+    expect(areaButton(/Oberwerth/)).toHaveAttribute('aria-selected', 'false');
     // The previously drafted area is untouched.
-    expect(areaButton(/Stadtmitte/)).toHaveAttribute('aria-pressed', 'true');
+    expect(areaButton(/Stadtmitte/)).toHaveAttribute('aria-selected', 'true');
   });
 
   it('cannot be reached or activated by keyboard', async () => {
@@ -488,7 +521,7 @@ describe('an unavailable area in Settings', () => {
     await user.keyboard('{Enter}');
     await user.keyboard(' ');
 
-    expect(areaButton(/Oberwerth/)).toHaveAttribute('aria-pressed', 'false');
+    expect(areaButton(/Oberwerth/)).toHaveAttribute('aria-selected', 'false');
   });
 
   it('exposes its disabled state through the accessibility tree', () => {
@@ -563,6 +596,112 @@ describe('reminder and waste-type editing', () => {
 
     expect(screen.queryByRole('option', { name: 'Demo provider' })).not.toBeInTheDocument();
   });
+
+  it('names the waste types in the language on screen', () => {
+    render(
+      <PresentationProvider locale="uk" appearance="system">
+        <SettingsView
+          cities={CITIES}
+          catalogue={CATALOGUE}
+          areaStateFor={() => loadedFor(OFFICIAL_PROVIDER_ID, MIXED_AREAS)}
+          initialSettings={STORED}
+          initialCityId={OFFICIAL_CITY_ID}
+          onRetryCities={vi.fn()}
+          onRetryCatalogue={vi.fn()}
+          onCancel={vi.fn()}
+          onSave={vi.fn()}
+          onRequestAreas={vi.fn()}
+          onRetryAreas={vi.fn()}
+        />
+      </PresentationProvider>,
+    );
+
+    expect(screen.getByRole('heading', { name: 'Налаштування' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Папір' })).toBeInTheDocument();
+  });
+});
+
+/**
+ * The stored selection's city is derived from successful reads. Until it is — the API unreachable, say — Settings
+ * must neither guess one nor lose the stored selection.
+ */
+describe('Settings before the stored selection’s city is known', () => {
+  it('chooses no city on the person’s behalf', () => {
+    renderView({ initialCityId: null });
+
+    expect(citySelect()).toHaveValue('');
+    expect(screen.queryByRole('option', { name: /Stadtmitte/ })).not.toBeInTheDocument();
+  });
+
+  it('keeps the stored selection when saving other settings', async () => {
+    const user = userEvent.setup();
+
+    await writeSettings(STORED);
+
+    const { save } = renderView({ initialCityId: null });
+
+    await user.click(screen.getByRole('button', { name: 'Biotonne' }));
+    await user.click(saveButton());
+
+    expect(save).toHaveBeenCalledWith(
+      expect.objectContaining({
+        settings: expect.objectContaining({ selection: OFFICIAL_SELECTION }),
+      }),
+    );
+    expect((await readSettings()).selection).toEqual(OFFICIAL_SELECTION);
+  });
+
+  it('fills the city in once it is derived, when the person has not changed it', () => {
+    const element = (initialCityId: string | null) => (
+      <SettingsView
+        cities={CITIES}
+        catalogue={CATALOGUE}
+        areaStateFor={() => loadedFor(OFFICIAL_PROVIDER_ID, MIXED_AREAS)}
+        initialSettings={STORED}
+        initialCityId={initialCityId}
+        onRetryCities={vi.fn()}
+        onRetryCatalogue={vi.fn()}
+        onCancel={vi.fn()}
+        onSave={vi.fn()}
+        onRequestAreas={vi.fn()}
+        onRetryAreas={vi.fn()}
+      />
+    );
+    const { rerender } = render(element(null));
+
+    expect(citySelect()).toHaveValue('');
+
+    // The popup's derivation answers after Settings opened.
+    rerender(element(OFFICIAL_CITY_ID));
+
+    expect(citySelect()).toHaveValue(OFFICIAL_CITY_ID);
+    expect(areaButton(/Stadtmitte/)).toHaveAttribute('aria-selected', 'true');
+  });
+
+  it('never lets a late derivation undo a city the person chose', async () => {
+    const user = userEvent.setup();
+    const element = (initialCityId: string | null) => (
+      <SettingsView
+        cities={CITIES}
+        catalogue={CATALOGUE}
+        areaStateFor={() => loadedFor(OFFICIAL_PROVIDER_ID, MIXED_AREAS)}
+        initialSettings={STORED}
+        initialCityId={initialCityId}
+        onRetryCities={vi.fn()}
+        onRetryCatalogue={vi.fn()}
+        onCancel={vi.fn()}
+        onSave={vi.fn()}
+        onRequestAreas={vi.fn()}
+        onRetryAreas={vi.fn()}
+      />
+    );
+    const { rerender } = render(element(null));
+
+    await user.selectOptions(citySelect(), OTHER_CITY_ID);
+    rerender(element(OFFICIAL_CITY_ID));
+
+    expect(citySelect()).toHaveValue(OTHER_CITY_ID);
+  });
 });
 
 describe('reopening Settings after a cancelled provider change', () => {
@@ -608,7 +747,7 @@ describe('the area-request state in Settings', () => {
     renderView({ areaState: { kind: 'loading', providerId: OFFICIAL_PROVIDER_ID } });
 
     expect(screen.getByRole('status')).toHaveTextContent('Sammelgebiete werden geladen…');
-    expect(screen.queryByRole('button', { name: /Stadtmitte/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole('option', { name: /Stadtmitte/ })).not.toBeInTheDocument();
   });
 
   it('states plainly that a provider publishes no areas', () => {
@@ -735,7 +874,7 @@ describe('a stale draft refused by the owner', () => {
     const user = userEvent.setup();
     const { save, answerWith } = renderView();
 
-    await user.selectOptions(providerSelect(), OTHER_PROVIDER_ID);
+    await user.selectOptions(citySelect(), OTHER_CITY_ID);
     answerWith(loadedFor(OTHER_PROVIDER_ID, [OTHER_AREA]));
     await user.click(areaButton(/Mitte/));
     await user.click(saveButton());

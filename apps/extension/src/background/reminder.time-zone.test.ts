@@ -298,7 +298,7 @@ describe('the drop-off window in a notification', () => {
       (argument) => typeof argument === 'object' && argument !== null,
     ) as { readonly message?: string } | undefined;
 
-    expect(options?.message).toContain('11:00–13:00 (Europe/Berlin)');
+    expect(options?.message).toContain('11:00 UTC+01:00–13:00 UTC+01:00 (Europe/Berlin)');
     // The device-local rendering of the same instants, which must not appear.
     expect(options?.message).not.toContain('05:00');
   });

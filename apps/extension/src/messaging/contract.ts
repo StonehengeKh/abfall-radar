@@ -5,13 +5,15 @@ import {
   ServiceAreaCapabilitySchema,
   SourceWindowSchema,
 } from '@/src/schedule/capability';
+import { TimeZoneSchema } from '@/src/schedule/time-zone';
+import { WebUrlSchema } from '@/src/schedule/web-url';
 import {
+  AppearanceSchema,
   AppSettingsSchema,
+  LocaleSchema,
   ReminderTimeSchema,
   ServiceAreaSelectionSchema,
 } from '@/src/storage/settings';
-import { TimeZoneSchema } from '@/src/schedule/time-zone';
-import { WebUrlSchema } from '@/src/schedule/web-url';
 
 /**
  * The typed contract between the popup and the background service worker.
@@ -50,6 +52,16 @@ const identifier = () => z.string().min(1);
 // ---------------------------------------------------------------------------
 // Requests
 // ---------------------------------------------------------------------------
+
+/**
+ * The city catalogue: the first choice a person makes, with the official providers behind each city.
+ *
+ * The same read the website starts with, so both applications ask the same question in the same order —
+ * city, then a provider only where a city has more than one, then a district.
+ */
+export const ListCitiesRequestSchema = z.strictObject({
+  kind: z.literal('list_cities'),
+});
 
 export const ListProvidersRequestSchema = z.strictObject({
   kind: z.literal('list_providers'),
@@ -171,7 +183,22 @@ export const InvalidateSelectionRequestSchema = z.strictObject({
   expectedSelection: ServiceAreaSelectionSchema,
 });
 
+/**
+ * Changes the interface language, the appearance, or both.
+ *
+ * An intent in the same sense as every other settings request: it names only the change, and the worker
+ * applies it to what is stored at the moment it runs. Kept apart from `save_settings` on purpose — a Settings
+ * draft carries every preference it was opened with, so if these two rode along, choosing a theme in one window
+ * could be undone by saving an older draft in another.
+ */
+export const SavePresentationRequestSchema = z.strictObject({
+  kind: z.literal('save_presentation'),
+  locale: LocaleSchema.optional(),
+  appearance: AppearanceSchema.optional(),
+});
+
 export const GatewayRequestSchema = z.discriminatedUnion('kind', [
+  ListCitiesRequestSchema,
   ListProvidersRequestSchema,
   ListServiceAreasRequestSchema,
   ListCollectionEventsRequestSchema,
@@ -180,6 +207,7 @@ export const GatewayRequestSchema = z.discriminatedUnion('kind', [
   ReadSettingsRequestSchema,
   SelectServiceAreaRequestSchema,
   SaveSettingsRequestSchema,
+  SavePresentationRequestSchema,
   InvalidateSelectionRequestSchema,
 ]);
 
@@ -199,9 +227,26 @@ export const ProviderSummarySchema = z.strictObject({
 
 export type ProviderSummary = z.infer<typeof ProviderSummarySchema>;
 
+/** A city, and the providers the catalogue lists behind it. */
+export const CitySummarySchema = z.strictObject({
+  id: identifier(),
+  name: z.string().min(1),
+  providers: z.array(ProviderSummarySchema),
+});
+
+export type CitySummary = z.infer<typeof CitySummarySchema>;
+
 export const ServiceAreaSummarySchema = z.strictObject({
   id: identifier(),
   providerId: identifier(),
+  /**
+   * The city the district belongs to, as the API states it.
+   *
+   * Required, because it is what makes a saved `{ providerId, serviceAreaId }` resolve to exactly one city: a
+   * district identifier is unique within its provider's response, and this names that district's city. The city
+   * is never inferred from a locality or any other display name.
+   */
+  cityId: identifier(),
   locality: z.string().min(1),
   name: z.string().min(1),
   collectionEvents: ServiceAreaCapabilitySchema,
@@ -488,6 +533,11 @@ const failureEnvelope = () =>
 const successEnvelope = <Schema extends z.ZodType>(data: Schema) =>
   z.strictObject({ ok: z.literal(true), data });
 
+export const CitiesResponseSchema = z.union([
+  successEnvelope(z.array(CitySummarySchema)),
+  failureEnvelope(),
+]);
+
 export const ProvidersResponseSchema = z.union([
   successEnvelope(z.array(ProviderSummarySchema)),
   failureEnvelope(),
@@ -678,6 +728,8 @@ export type SelectionInvalidationPayload = Extract<
   { ok: true }
 >['data'];
 
+export type CitiesResponse = z.infer<typeof CitiesResponseSchema>;
+
 export type ProvidersResponse = z.infer<typeof ProvidersResponseSchema>;
 
 export type ServiceAreasResponse = z.infer<typeof ServiceAreasResponseSchema>;
@@ -714,6 +766,7 @@ export const SETTINGS_CHANGED_NOTIFICATION: SettingsChangedNotification = {
 
 /** Every envelope a handler may answer with, for the handler's own return type. */
 export const GatewayResponseSchema = z.union([
+  CitiesResponseSchema,
   ProvidersResponseSchema,
   ServiceAreasResponseSchema,
   ScheduleResponseSchema,
@@ -729,6 +782,7 @@ export type GatewayResponse = z.infer<typeof GatewayResponseSchema>;
 
 /** Maps a request kind onto the operation it performs, for logging and failure reporting. */
 export const OPERATION_BY_REQUEST_KIND = {
+  list_cities: 'listCities',
   list_providers: 'listProviders',
   list_service_areas: 'listServiceAreas',
   list_collection_events: 'listCollectionEvents',
@@ -745,6 +799,7 @@ export const SETTINGS_REQUEST_KINDS = [
   'read_settings',
   'select_service_area',
   'save_settings',
+  'save_presentation',
   'invalidate_selection_if_matches',
 ] as const;
 

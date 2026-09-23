@@ -14,6 +14,7 @@
   "dependencies": {
     "@abfall-radar/api-client": "workspace:*",
     "@abfall-radar/domain": "workspace:*",
+    "@abfall-radar/schedule-format": "workspace:*",
     "@abfall-radar/ui": "workspace:*",
     "lucide-react": "catalog:",
     "react": "catalog:",

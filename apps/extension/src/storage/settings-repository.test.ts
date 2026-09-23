@@ -5,9 +5,15 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { fakeBrowser } from 'wxt/testing';
 import type { ServiceAreaCapability } from '@/src/schedule/capability';
 import { evidenceFor } from '@/src/test/fixtures';
-import { type AppSettings, defaultSettings, SETTINGS_SCHEMA_VERSION } from './settings';
+import {
+  type AppSettings,
+  defaultSettings,
+  PREVIOUS_SETTINGS_SCHEMA_VERSION,
+  SETTINGS_SCHEMA_VERSION,
+} from './settings';
 import {
   invalidateSelectionIfMatches,
+  persistPresentation,
   persistSelection,
   persistSettings,
   readSettings,
@@ -80,6 +86,8 @@ describe('readSettings', () => {
       reminderDaysBefore: 2,
       reminderTime: '19:00',
       visibleWasteTypes: ['paper'],
+      locale: 'de',
+      appearance: 'system',
     });
   });
 
@@ -639,6 +647,8 @@ describe('a legacy migration whose write fails', () => {
       reminderDaysBefore: 2,
       reminderTime: '19:00',
       visibleWasteTypes: ['paper'],
+      locale: 'de',
+      appearance: 'system',
     });
   });
 
@@ -1361,5 +1371,115 @@ describe('reading a versioned record this build cannot read', () => {
 
     expect(state.status === 'ready' && state.settings.selection).toEqual(OFFICIAL_SELECTION);
     expect(await getStored()).toMatchObject({ version: SETTINGS_SCHEMA_VERSION });
+  });
+});
+
+describe('version 3: the upgrade and the presentation preferences', () => {
+  /** A version-2 record as that build wrote it, every value unlike the defaults. */
+  const V2_RECORD = {
+    version: PREVIOUS_SETTINGS_SCHEMA_VERSION,
+    selection: OFFICIAL_SELECTION,
+    remindersEnabled: false,
+    reminderDaysBefore: 4,
+    reminderTime: '07:15',
+    visibleWasteTypes: ['yellow_bag'],
+  };
+
+  it('migrates a stored version-2 record locally and persists version 3 exactly once', async () => {
+    await setStored(V2_RECORD);
+    const set = vi.spyOn(fakeBrowser.storage.local, 'set');
+
+    const settings = await readSettings();
+
+    expect(settings).toEqual({
+      ...V2_RECORD,
+      version: SETTINGS_SCHEMA_VERSION,
+      locale: 'de',
+      appearance: 'system',
+    });
+    expect(await getStored()).toEqual(settings);
+    expect(set).toHaveBeenCalledTimes(1);
+
+    // Reopening reads version 3 and writes nothing: the migration does not run twice.
+    set.mockClear();
+    expect(await readSettings()).toEqual(settings);
+    expect(set).not.toHaveBeenCalled();
+  });
+
+  it('keeps a language and appearance chosen after the upgrade across reopenings', async () => {
+    await setStored(V2_RECORD);
+    await readSettings();
+
+    await persistPresentation({ locale: 'uk', appearance: 'dark' });
+
+    const reopened = await readSettings();
+
+    expect(reopened.locale).toBe('uk');
+    expect(reopened.appearance).toBe('dark');
+    // Nothing else moved.
+    expect(reopened.reminderTime).toBe('07:15');
+    expect(reopened.selection).toEqual(OFFICIAL_SELECTION);
+  });
+
+  it('writes only the preference it was given', async () => {
+    await writeSettings({ ...STORED_WITH_SELECTION, locale: 'en', appearance: 'light' });
+
+    const afterAppearance = await persistPresentation({ appearance: 'dark' });
+
+    expect(afterAppearance.appearance).toBe('dark');
+    expect(afterAppearance.locale).toBe('en');
+    expect(afterAppearance.selection).toEqual(OFFICIAL_SELECTION);
+    expect(afterAppearance.visibleWasteTypes).toEqual(['paper']);
+    expect(await getStored()).toEqual(afterAppearance);
+  });
+
+  it('applies a preference to what is stored now, not to an earlier view of it', async () => {
+    await writeSettings(STORED_WITH_SELECTION);
+
+    // Another context clears the selection after this popup opened…
+    await invalidateSelectionIfMatches(OFFICIAL_SELECTION);
+    // …and then this popup changes the theme. The cleared selection is not resurrected.
+    const persisted = await persistPresentation({ appearance: 'dark' });
+
+    expect(persisted.selection).toBeNull();
+    expect(persisted.appearance).toBe('dark');
+  });
+
+  it('never lets a Settings draft put back a language or appearance changed since it opened', async () => {
+    await writeSettings({ ...STORED_WITH_SELECTION, locale: 'de', appearance: 'system' });
+
+    // A Settings draft opens, then another window changes the presentation.
+    await persistPresentation({ locale: 'ru', appearance: 'dark' });
+
+    const result = await persistSettings({
+      expectedSelection: OFFICIAL_SELECTION,
+      settings: {
+        version: SETTINGS_SCHEMA_VERSION,
+        selection: OFFICIAL_SELECTION,
+        remindersEnabled: false,
+        reminderDaysBefore: 2,
+        reminderTime: '20:00',
+        visibleWasteTypes: ['paper', 'bio'],
+      },
+    });
+
+    expect(result.outcome).toBe('persisted');
+    // The draft's own fields landed; the newer presentation survived it.
+    expect(await getStored()).toMatchObject({
+      reminderTime: '20:00',
+      locale: 'ru',
+      appearance: 'dark',
+    });
+  });
+
+  it("refuses to change a newer build's settings, leaving them exactly as stored", async () => {
+    const newer = { version: SETTINGS_SCHEMA_VERSION + 1, somethingNewer: true };
+
+    await setStored(newer);
+
+    await expect(persistPresentation({ appearance: 'dark' })).rejects.toBeInstanceOf(
+      UnsupportedSettingsVersionError,
+    );
+    expect(await getStored()).toEqual(newer);
   });
 });

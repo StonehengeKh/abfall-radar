@@ -8,8 +8,8 @@ import { MESSAGES } from '@/src/i18n/messages';
 import {
   area,
   areas,
-  cities,
   CITY_ID,
+  cities,
   curbside,
   events,
   KOBLENZ_CITY,

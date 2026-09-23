@@ -1,4 +1,4 @@
-import { BrandMark } from '@abfall-radar/ui';
+import { BrandMark, BrandName } from '@abfall-radar/ui';
 import { ArrowUp, MapPin } from 'lucide-react';
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { announcementMessage, failureMessage, supportIdentifier } from '@/src/app/copy';
@@ -310,7 +310,7 @@ const Wordmark = () => (
     id="app-title"
     tabIndex={-1}
   >
-    Abfall<span className="text-ar-brand">Radar</span>
+    <BrandName />
   </h1>
 );
 

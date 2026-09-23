@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { defaultSettings, SETTINGS_SCHEMA_VERSION } from './settings';
+import {
+  defaultSettings,
+  PREVIOUS_SETTINGS_SCHEMA_VERSION,
+  SETTINGS_SCHEMA_VERSION,
+} from './settings';
 import { migrateSettings, shouldPersistMigration } from './settings-migration';
 
 const LEGACY_BASE = {
@@ -18,6 +22,21 @@ const CURRENT_SETTINGS = {
   reminderDaysBefore: 1,
   reminderTime: '18:00',
   visibleWasteTypes: ['paper'],
+  locale: 'uk',
+  appearance: 'dark',
+} as const;
+
+/**
+ * A version-2 record exactly as that build wrote it: every value deliberately unlike the defaults, so a
+ * migration that dropped one and fell back would be visible.
+ */
+const V2_SETTINGS = {
+  version: PREVIOUS_SETTINGS_SCHEMA_VERSION,
+  selection: { providerId: 'koblenz-servicebetrieb', serviceAreaId: 'koblenz-neuendorf' },
+  remindersEnabled: false,
+  reminderDaysBefore: 3,
+  reminderTime: '06:45',
+  visibleWasteTypes: ['yellow_bag', 'hazardous'],
 } as const;
 
 describe('migrateSettings', () => {
@@ -158,6 +177,93 @@ describe('migrateSettings', () => {
     expect(migrateSettings(legacyWith('koblenz-stadtmitte')).settings.version).toBe(
       SETTINGS_SCHEMA_VERSION,
     );
+  });
+});
+
+describe('version 2 onto version 3', () => {
+  it('keeps every stored value and the selection in its existing shape', () => {
+    const migration = migrateSettings(V2_SETTINGS);
+
+    expect(migration.outcome).toBe('migrated');
+    expect(migration.settings).toEqual({
+      version: SETTINGS_SCHEMA_VERSION,
+      selection: { providerId: 'koblenz-servicebetrieb', serviceAreaId: 'koblenz-neuendorf' },
+      remindersEnabled: false,
+      reminderDaysBefore: 3,
+      reminderTime: '06:45',
+      visibleWasteTypes: ['yellow_bag', 'hazardous'],
+      locale: 'de',
+      appearance: 'system',
+    });
+    // Exactly the two members version 2 never had: no city, no schedule, nothing else added.
+    expect(Object.keys(migration.settings.selection ?? {}).sort()).toEqual([
+      'providerId',
+      'serviceAreaId',
+    ]);
+  });
+
+  it('keeps an explicit needs-selection state as it was', () => {
+    const migration = migrateSettings({ ...V2_SETTINGS, selection: null });
+
+    expect(migration.outcome).toBe('migrated');
+    expect(migration.settings.selection).toBeNull();
+  });
+
+  it('is persisted, because it is a completed migration', () => {
+    expect(shouldPersistMigration(migrateSettings(V2_SETTINGS))).toBe(true);
+  });
+
+  it('is idempotent: the written result reads back as current and is not migrated again', () => {
+    const once = migrateSettings(V2_SETTINGS);
+    const again = migrateSettings(once.settings);
+
+    expect(again.outcome).toBe('current');
+    expect(again.settings).toEqual(once.settings);
+    expect(shouldPersistMigration(again)).toBe(false);
+  });
+
+  it('never resets a language or appearance chosen after the upgrade', () => {
+    const chosen = { ...migrateSettings(V2_SETTINGS).settings, locale: 'ru', appearance: 'light' };
+    const reopened = migrateSettings(chosen);
+
+    // Reopening the extension reads the same record: nothing migrates, nothing defaults.
+    expect(reopened.outcome).toBe('current');
+    expect(reopened.settings.locale).toBe('ru');
+    expect(reopened.settings.appearance).toBe('light');
+  });
+
+  it('does not treat a malformed version-2 record as version 2', () => {
+    const broken = migrateSettings({ ...V2_SETTINGS, reminderTime: '25:99' });
+
+    // Strict, like the schema that wrote it: not migrated, not persisted, defaults in memory only.
+    expect(broken.outcome).toBe('defaulted');
+    expect(shouldPersistMigration(broken)).toBe(false);
+  });
+
+  it('does not treat a version-2 record carrying the new members as version 3', () => {
+    const mixed = migrateSettings({ ...V2_SETTINGS, locale: 'en', appearance: 'dark' });
+
+    expect(mixed.outcome).toBe('defaulted');
+  });
+
+  it("leaves a newer build's record alone rather than defaulting over it", () => {
+    const newer = migrateSettings({
+      ...CURRENT_SETTINGS,
+      version: SETTINGS_SCHEMA_VERSION + 1,
+      somethingNewer: true,
+    });
+
+    expect(newer.outcome).toBe('unsupported_version');
+    expect(shouldPersistMigration(newer)).toBe(false);
+  });
+
+  it('carries a legacy record all the way to version 3, with the new defaults', () => {
+    const migration = migrateSettings(legacyWith('koblenz-stadtmitte'));
+
+    expect(migration.settings.version).toBe(SETTINGS_SCHEMA_VERSION);
+    expect(migration.settings.locale).toBe('de');
+    expect(migration.settings.appearance).toBe('system');
+    expect(migration.settings.reminderTime).toBe('19:00');
   });
 });
 
