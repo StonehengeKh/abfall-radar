@@ -28,12 +28,29 @@ export interface BuildManifestInput {
   readonly isRelease: boolean;
 }
 
+/**
+ * The rendered sizes the browser asks for, and what each one is actually used for.
+ *
+ * 16 and 32 are the toolbar button at 1x and 2x, 48 is the row on `chrome://extensions`, and 128 is the
+ * install prompt and the store listing. `@wxt-dev/auto-icons` rasterises all four from
+ * `assets/icon.svg`, which `scripts/sync-brand-icons.mjs` keeps identical to the website's favicon, so
+ * the toolbar and the browser tab cannot show two different marks.
+ */
+export const EXTENSION_ICON_SIZES = [16, 32, 48, 128] as const;
+
+/** `{ 16: 'icons/16.png', … }` — the shape both `icons` and `action.default_icon` take. */
+export const iconPaths = (): Record<string, string> =>
+  Object.fromEntries(EXTENSION_ICON_SIZES.map((size) => [String(size), `icons/${size}.png`]));
+
 export interface ExtensionManifest {
   readonly name: string;
   readonly description: string;
   readonly permissions: string[];
   readonly host_permissions: string[];
-  readonly action: { readonly default_title: string };
+  readonly action: {
+    readonly default_title: string;
+    readonly default_icon: Record<string, string>;
+  };
 }
 
 export const buildManifest = ({
@@ -55,6 +72,12 @@ export const buildManifest = ({
     // Exactly one entry, derived from the validated origin. Never hand-written, so it cannot describe a
     // host the extension does not actually contact.
     host_permissions: [toHostPermissionPattern(baseUrl)],
-    action: { default_title: 'AbfallRadar' },
+    /*
+     * `default_icon` is stated rather than left to the `icons` fallback. Chrome will fall back, but the
+     * fallback picks one size and rescales it, so a toolbar button ends up resampled from the 128 px
+     * drawing instead of using the 16 and 32 px renders made for it. `icons` itself stays with
+     * `@wxt-dev/auto-icons`, which writes the files these paths name.
+     */
+    action: { default_title: 'AbfallRadar', default_icon: iconPaths() },
   };
 };

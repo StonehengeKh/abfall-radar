@@ -118,6 +118,7 @@ and make every response impossible to attribute to a known contract.
 | --- | --- | --- |
 | `WXT_API_BASE_URL` | The API origin. Scheme, host, and optional port only. | `http://127.0.0.1:3000` |
 | `WXT_RELEASE` | Marks the controlled release and packaging path. | unset |
+| `ABFALL_RADAR_EXTENSION_INSTALL_DIR` | Where `install:local` copies the build. Local only; never committed. | unset |
 
 - The value is validated and normalized by `parseApiBaseUrl` from `@abfall-radar/api-client`, which the
   build configuration and the application code both call, so the requested host permission and the
@@ -347,6 +348,138 @@ pnpm --filter @abfall-radar/extension build
 ```
 
 Run `pnpm dev:api` alongside it, because the extension has no data source other than the API.
+
+### Rebuilding an already installed unpacked extension
+
+`pnpm dev:extension` runs `wxt dev`, which drives **its own** browser profile and writes a development
+build. That is the wrong tool for updating the unpacked extension you already loaded from
+`chrome://extensions`, with your own settings in it. WXT 0.20.27 also has no `build --watch` — `wxt build
+--help` lists `--config`, `--mode`, `--browser`, `--filter-entrypoint`, `--mv3`, `--mv2`, `--analyze`,
+`--debug` and `--level`, and nothing else — so `scripts/install-local.ts` does the watching and each
+rebuild is an ordinary `wxt build`.
+
+Name the destination once, in `apps/extension/.env.local` (untracked, and git-ignored):
+
+```bash
+ABFALL_RADAR_EXTENSION_INSTALL_DIR=/absolute/path/to/your/unpacked/extension
+```
+
+Then:
+
+```bash
+# Build once and install.
+pnpm --filter @abfall-radar/extension install:local
+
+# Build, install, and rebuild on every change. Ctrl+C stops it.
+pnpm --filter @abfall-radar/extension install:local:watch
+
+# Install somewhere else for one run, without touching the configured destination.
+pnpm --filter @abfall-radar/extension install:local -- --dest /absolute/path
+
+# Take ownership of a directory you installed by hand, once, before the first managed install.
+pnpm --filter @abfall-radar/extension install:local -- --adopt
+```
+
+After a `ready` line, press **Reload** on the extension in `chrome://extensions`. Nothing else is
+needed: the extension keeps its identity and its settings, because the directory itself is never
+removed — Chrome keys an unpacked extension's storage to its path, so only the files inside are
+replaced.
+
+It starts in the foreground and stops with Ctrl+C. **No background service is installed**, nothing is
+registered with the operating system, and nothing survives closing the terminal.
+
+| Status line | What it means |
+| --- | --- |
+| `building…` | A build is running. The installed extension is still the previous one. |
+| `failed — …` | Nothing was copied. **The installed extension is exactly what it was.** |
+| `ready — installed to …` | The new build passed validation and is in place. Press Reload. |
+
+A one-shot run **exits nonzero** if the build, the validation or the install failed. Watch mode keeps
+going after a failed build and exits on Ctrl+C with the status of its last build — `0` if it was
+installed, `1` if it had failed or was interrupted before it could be.
+
+### What it watches
+
+This workspace's `entrypoints`, `src`, `assets`, `wxt.config.ts`, `tsconfig.json` and `package.json`;
+the shared workspaces' `src` **and** their `package.json`; `scripts/sync-brand-icons.mjs`; and
+`pnpm-workspace.yaml` and the root `tsconfig.json`.
+
+Every env file WXT's `loadEnv` consults for this production Chrome build is watched through the
+extension directory itself — `.env`, `.env.production`, `.env.chrome`, `.env.production.chrome` and each
+one's `.local` companion — so **creating** one after startup is noticed, not only editing one that
+already existed. Generated output (`.output`, `.wxt`, `dist`,
+`.turbo`), `node_modules` and the installed directory are never watched, so a build cannot retrigger
+itself.
+
+Watchers start **before** the first build, so an edit made while that build is running is still noticed
+and queues a rebuild. Changes are debounced, builds never overlap, and changes arriving during a build
+queue exactly one more.
+
+Each build first runs `scripts/sync-brand-icons.mjs`, so editing `packages/ui/src/brand/favicon.svg`
+updates the website's copy, the extension's copy **and** the generated PNGs in one step. The
+synchronising write is ignored by the watcher, so it cannot start an endless rebuild loop.
+
+### How it decides what it may delete
+
+It writes an inventory, `.abfall-radar-install.json`, recording every installed file **and its
+SHA-256**. The only files it removes are ones that inventory lists *and* whose bytes still match. A file
+that changed since it was installed means something else is managing the directory, so the install is
+refused rather than overwriting it. The inventory itself is parsed strictly — exact tool and version,
+an object (not an array), normalized relative paths with no traversal or absolute names, and real
+SHA-256 values — because it is a file on disk that anything could have written.
+
+A directory with contents but no inventory is refused. `--adopt` takes ownership once, by reading the
+directory as **a complete extension in its own right** and owning exactly what that extension's own
+manifest and popup reference. That is evidence from the prior build rather than filename coincidence
+with the new one, and it is what lets an older hand-installed build — whose content-hashed
+`chunks/popup-old.js` the new build has no name for — be adopted and then upgraded. Anything in the
+directory that its own extension does not reference is refused, not deleted.
+
+- The destination may not be a symlink, and no symlink inside it is followed. Intermediate symlinks in
+  the path are resolved — `/var` is one on macOS — and the **nearest existing ancestor** is resolved
+  however many parents are missing, so a link with a nonexistent descendant cannot smuggle a path past
+  the next check.
+- The repository, the build output, your home directory itself and the filesystem root are refused, in
+  either direction.
+- The destination is resolved and re-checked **again immediately before staging**, so a parent
+  redirected while the build was running aborts the install instead of redirecting it.
+- Ownership is re-established after the build, and the destination re-examined immediately before the
+  swap, so a file created while the build was running **aborts the install** instead of being deleted.
+- The previous installation is copied to `<destination>-backup-<timestamp>` before the first
+  replacement of a run. That obligation stays pending until a backup has actually been taken: a failed
+  compilation, validation, ownership check or transaction does not consume it.
+
+### If an install is interrupted
+
+The swap writes `<destination>.transaction.json` before the first rename and deletes it after the last.
+An ordinary error rolls back in place, using the paths that run derived for itself. A **killed** process
+cannot, so the next run reads that record at startup and finishes the job.
+
+**The record is evidence that something was interrupted, never authority over what to delete.** It is
+parsed from scratch against an exact schema — tool, version, destination, a numeric identifier, a start
+time — and the only two scratch directories it can act on are *derived* from the validated destination
+and that identifier, then checked on disk to be real directories beside it rather than symlinks. A
+record that fails any of this is refused with manual instructions, and neither it nor anything it names
+is moved or removed.
+
+| On disk | What happens |
+| --- | --- |
+| destination present, scratch left over | the swap committed; leftovers are removed |
+| destination absent, `.previous-*` present | it did not commit; the previous installation is moved back |
+| destination absent, only `.staging-*` present | the new build is the only installation left; it is moved in |
+| destination absent, neither present | **refused**, with the manual recovery steps printed |
+| the record is malformed, foreign, or names other paths | **refused**; the record and every path it mentions are left exactly as they are |
+
+The manual path, if it ever comes to that: `ls -d <destination>-backup-*`, copy the newest into place,
+delete the transaction file. Or simply run the command again to build and install a fresh copy.
+
+The build output is validated before any of that: manifest version 3, a name, a background service
+worker, a popup, **all four** icon sizes under both `icons` and `action.default_icon`, at least one host
+permission, and every file those and the popup reference actually emitted inside the output root. A
+reference that escapes the output root is refused.
+
+The build uses `WXT_API_BASE_URL=http://127.0.0.1:3000` unless you export another value, and it never
+sets `WXT_RELEASE`, so the release-origin assertions below still guard the packaging path.
 
 ## Verification
 

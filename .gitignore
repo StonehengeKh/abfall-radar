@@ -15,6 +15,10 @@ stats.html
 stats-*.json
 **/.wxt
 web-ext.config.ts
+
+# Local environment files, including the local install destination for the extension.
+.env.local
+.env.*.local
 .ai/reviews
 **/coverage
 *.zip

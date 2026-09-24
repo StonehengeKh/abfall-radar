@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { ReleaseConfigurationError } from './api-origin';
-import { buildManifest } from './manifest';
+import { buildManifest, EXTENSION_ICON_SIZES, iconPaths } from './manifest';
 
 const developmentManifest = () => buildManifest({ rawApiBaseUrl: undefined, isRelease: false });
 
@@ -75,5 +75,38 @@ describe('buildManifest', () => {
 
     expect(manifest.name).toBe('AbfallRadar');
     expect(manifest.action.default_title).toBe('AbfallRadar');
+  });
+});
+
+/**
+ * The icons the browser is told to use.
+ *
+ * `icons` alone would have worked — Chrome falls back to it for the toolbar — but the fallback picks one
+ * size and rescales it, so the button ends up resampled from the 128 px drawing rather than using the
+ * 16 and 32 px renders made for it. Both keys are therefore stated, from one list, so a size cannot be
+ * added to the renders and forgotten in the manifest.
+ */
+describe('the manifest icons', () => {
+  it('names the toolbar icon explicitly rather than relying on the icons fallback', () => {
+    expect(developmentManifest().action.default_icon).toEqual({
+      16: 'icons/16.png',
+      32: 'icons/32.png',
+      48: 'icons/48.png',
+      128: 'icons/128.png',
+    });
+  });
+
+  it('covers the toolbar at 1x and 2x, the management row, and the install prompt', () => {
+    expect(EXTENSION_ICON_SIZES).toEqual([16, 32, 48, 128]);
+  });
+
+  it('points every size at a file @wxt-dev/auto-icons writes', () => {
+    for (const [size, path] of Object.entries(iconPaths())) {
+      expect(path).toBe(`icons/${size}.png`);
+    }
+  });
+
+  it('keeps the toolbar title beside the icon, so the button has an accessible name', () => {
+    expect(developmentManifest().action.default_title).toBe('AbfallRadar');
   });
 });
