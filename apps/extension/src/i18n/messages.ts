@@ -2,6 +2,7 @@ import {
   type Locale,
   SCHEDULE_MESSAGES,
   type ScheduleMessages,
+  withSentencePeriod,
 } from '@abfall-radar/schedule-format';
 import type { CachedReason } from '@/src/schedule/view-state';
 
@@ -120,6 +121,31 @@ export interface PopupMessages {
     readonly unsupported_message: string;
     readonly problems: Record<ProblemCode, string>;
     readonly generic: string;
+  };
+  /**
+   * The optional household bins.
+   *
+   * Its first job is to say that these dates are **calculated** from the operator's published rules and a
+   * weekday the person confirmed, and its second is to say exactly where that stops being true.
+   */
+  readonly household: {
+    readonly heading: string;
+    readonly intro: string;
+    readonly enable: string;
+    readonly weekdayLabel: string;
+    /** The placeholder in the weekday field: a prompt, never a selectable weekday. */
+    readonly chooseWeekday: string;
+    readonly weekdayHint: string;
+    readonly confirm: string;
+    readonly change: string;
+    readonly disable: string;
+    readonly loading: string;
+    readonly unavailable: string;
+    readonly notOffered: string;
+    readonly limitedCoverage: (date: string) => string;
+    readonly unverified: string;
+    readonly changed: string;
+    readonly weekdays: Record<1 | 2 | 3 | 4 | 5 | 6 | 7, string>;
   };
   readonly settings: {
     readonly heading: string;
@@ -260,6 +286,35 @@ const de: PopupMessages = {
     },
     generic: 'Die Termine konnten nicht geladen werden.',
   },
+  household: {
+    heading: 'Braune und Graue Tonne',
+    intro:
+      'Für diese beiden Tonnen veröffentlicht der Betrieb keinen digitalen Kalender. Mit deinem Abfuhrtag werden die Termine aus den veröffentlichten Regeln berechnet.',
+    enable: 'Termine berechnen',
+    chooseWeekday: 'Abfuhrtag wählen',
+    confirm: 'Abfuhrtag bestätigen',
+    change: 'Abfuhrtag ändern',
+    weekdayLabel: 'Regulärer Abfuhrtag',
+    weekdayHint: 'Den Abfuhrtag deines Haushalts nennt dir der Betrieb unter 0261 129-4545.',
+    disable: 'Nicht mehr anzeigen',
+    loading: 'Regeln werden geladen…',
+    unavailable: 'Die Regeln konnten nicht geladen werden. Dein Abfuhrtag bleibt gespeichert.',
+    notOffered: 'Für diesen Betrieb liegen keine Regeln für diese Tonnen vor.',
+    limitedCoverage: (date) =>
+      `Berechnet bis ${withSentencePeriod(date)} Für die Zeit danach hat der Betrieb noch keine Feiertagsverlegungen veröffentlicht.`,
+    unverified: 'Die veröffentlichten Regeln konnten gerade nicht geprüft werden.',
+    changed:
+      'Der Betrieb hat die Regeln geändert. Diese Termine sind nicht mehr aktuell und werden nicht angezeigt.',
+    weekdays: {
+      1: 'Montag',
+      2: 'Dienstag',
+      3: 'Mittwoch',
+      4: 'Donnerstag',
+      5: 'Freitag',
+      6: 'Samstag',
+      7: 'Sonntag',
+    },
+  },
   settings: {
     heading: 'Einstellungen',
     save: 'Einstellungen speichern',
@@ -393,6 +448,35 @@ const en: PopupMessages = {
     },
     generic: 'The dates could not be loaded.',
   },
+  household: {
+    heading: 'Brown and grey bin',
+    intro:
+      'The operator publishes no digital calendar for these two bins. With your collection weekday, the dates are calculated from the published rules.',
+    enable: 'Calculate these dates',
+    chooseWeekday: 'Choose a weekday',
+    confirm: 'Confirm weekday',
+    change: 'Change weekday',
+    weekdayLabel: 'Regular collection weekday',
+    weekdayHint: 'The operator tells you your household’s collection day on 0261 129-4545.',
+    disable: 'Stop showing these',
+    loading: 'Loading the rules…',
+    unavailable: 'The rules could not be loaded. Your weekday is still saved.',
+    notOffered: 'No rules for these bins are available for this operator.',
+    limitedCoverage: (date) =>
+      `Calculated to ${withSentencePeriod(date)} The operator has not published holiday changes beyond that yet.`,
+    unverified: 'The published rules could not be checked just now.',
+    changed:
+      'The operator has changed the rules. These dates are no longer current and are not shown.',
+    weekdays: {
+      1: 'Monday',
+      2: 'Tuesday',
+      3: 'Wednesday',
+      4: 'Thursday',
+      5: 'Friday',
+      6: 'Saturday',
+      7: 'Sunday',
+    },
+  },
   settings: {
     heading: 'Settings',
     save: 'Save settings',
@@ -523,6 +607,34 @@ const uk: PopupMessages = {
       UPSTREAM_SOURCE_INVALID: 'Офіційне джерело не вдалося обробити.',
     },
     generic: 'Не вдалося завантажити дати.',
+  },
+  household: {
+    heading: 'Коричневий і сірий контейнер',
+    intro:
+      'Для цих двох контейнерів оператор не публікує цифрового календаря. Знаючи ваш день вивезення, дати обчислюються за опублікованими правилами.',
+    enable: 'Обчислити ці дати',
+    chooseWeekday: 'Оберіть день',
+    confirm: 'Підтвердити день',
+    change: 'Змінити день',
+    weekdayLabel: 'Звичайний день вивезення',
+    weekdayHint: 'День вивезення для вашого домогосподарства оператор повідомляє за 0261 129-4545.',
+    disable: 'Більше не показувати',
+    loading: 'Завантаження правил…',
+    unavailable: 'Не вдалося завантажити правила. Ваш день вивезення збережено.',
+    notOffered: 'Для цього оператора немає правил щодо цих контейнерів.',
+    limitedCoverage: (date) =>
+      `Обчислено до ${withSentencePeriod(date)} Перенесення через свята після цієї дати оператор ще не опублікував.`,
+    unverified: 'Опубліковані правила зараз не вдалося перевірити.',
+    changed: 'Оператор змінив правила. Ці дати вже не актуальні та не відображаються.',
+    weekdays: {
+      1: 'Понеділок',
+      2: 'Вівторок',
+      3: 'Середа',
+      4: 'Четвер',
+      5: 'П’ятниця',
+      6: 'Субота',
+      7: 'Неділя',
+    },
   },
   settings: {
     heading: 'Налаштування',
@@ -657,6 +769,34 @@ const ru: PopupMessages = {
     },
     generic: 'Не удалось загрузить даты.',
   },
+  household: {
+    heading: 'Коричневый и серый контейнер',
+    intro:
+      'Для этих двух контейнеров оператор не публикует цифровой календарь. Зная ваш день вывоза, даты рассчитываются по опубликованным правилам.',
+    enable: 'Рассчитать эти даты',
+    chooseWeekday: 'Выберите день',
+    confirm: 'Подтвердить день',
+    change: 'Изменить день',
+    weekdayLabel: 'Обычный день вывоза',
+    weekdayHint: 'День вывоза для вашего домохозяйства оператор сообщает по 0261 129-4545.',
+    disable: 'Больше не показывать',
+    loading: 'Загрузка правил…',
+    unavailable: 'Не удалось загрузить правила. Ваш день вывоза сохранён.',
+    notOffered: 'Для этого оператора нет правил по этим контейнерам.',
+    limitedCoverage: (date) =>
+      `Рассчитано до ${withSentencePeriod(date)} Переносы из-за праздников после этой даты оператор ещё не опубликовал.`,
+    unverified: 'Опубликованные правила сейчас не удалось проверить.',
+    changed: 'Оператор изменил правила. Эти даты больше не актуальны и не показываются.',
+    weekdays: {
+      1: 'Понедельник',
+      2: 'Вторник',
+      3: 'Среда',
+      4: 'Четверг',
+      5: 'Пятница',
+      6: 'Суббота',
+      7: 'Воскресенье',
+    },
+  },
   settings: {
     heading: 'Настройки',
     save: 'Сохранить настройки',
@@ -672,12 +812,21 @@ const ru: PopupMessages = {
   },
 };
 
-/** Everything the popup renders: the shared schedule copy and its own, as one value. */
-export type Messages = ScheduleMessages & PopupMessages;
+/**
+ * Everything the popup renders: the shared schedule copy and its own, as one value.
+ *
+ * `household` is the one section both sides write to — the shared "calculated" mark and the popup's own
+ * setup panel — so it is merged rather than replaced, exactly as the website merges it.
+ */
+export type Messages = Omit<ScheduleMessages, 'household'> &
+  Omit<PopupMessages, 'household'> & {
+    readonly household: ScheduleMessages['household'] & PopupMessages['household'];
+  };
 
 const compose = (locale: Locale, own: PopupMessages): Messages => ({
   ...SCHEDULE_MESSAGES[locale],
   ...own,
+  household: { ...SCHEDULE_MESSAGES[locale].household, ...own.household },
 });
 
 export const MESSAGES: Record<Locale, Messages> = {

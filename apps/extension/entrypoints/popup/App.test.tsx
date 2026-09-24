@@ -9,8 +9,8 @@ import {
   isSettingsRequest,
   SETTINGS_STORAGE_UNAVAILABLE,
   SETTINGS_UNSUPPORTED_VERSION,
-  SettingsChangedNotificationSchema,
   type ServiceAreaSummary,
+  SettingsChangedNotificationSchema,
   type SettingsRequestKind,
 } from '@/src/messaging/contract';
 import { type AppSettings, defaultSettings, SETTINGS_SCHEMA_VERSION } from '@/src/storage/settings';
@@ -127,6 +127,7 @@ const answerSettings = async (
       case 'save_settings': {
         const result = await persistSettings({
           expectedSelection: request.expectedSelection,
+          expectedHousehold: null,
           settings: {
             version: SETTINGS_SCHEMA_VERSION,
             selection: request.selection,
@@ -134,6 +135,7 @@ const answerSettings = async (
             reminderDaysBefore: request.reminderDaysBefore,
             reminderTime: request.reminderTime,
             visibleWasteTypes: [...request.visibleWasteTypes],
+            household: request.household,
           },
           ...(request.evidence === undefined ? {} : { evidence: request.evidence }),
         });
@@ -272,6 +274,10 @@ const stubWorker = ({
         return { ok: true, data: restored };
       case 'invalidate_cached_schedule':
         return { ok: true, data: null };
+      case 'get_household_rules':
+        // Unavailable unless a test scripts it: the household bins are opt-in, so the ordinary popup
+        // must work without them.
+        return { ok: false, failure: { kind: 'network', operation: 'getHouseholdRules' } };
       default:
         // Settings intents are answered by the real repository, exactly as the worker answers them. The popup
         // owns no settings storage of its own, so a stub that faked these would be testing nothing.
@@ -1977,6 +1983,7 @@ describe('the selection being cleared while Settings is open', () => {
     // A save carrying the stale premise, exactly as the unmounted view would have sent it.
     const outcome = await persistSettings({
       expectedSelection: SELECTED,
+      expectedHousehold: null,
       settings: { ...STORED, reminderTime: '20:00' },
       evidence: evidenceForArea(AVAILABLE_AREA),
     });
@@ -2483,5 +2490,132 @@ describe('cancelling a Settings draft that explored another city', () => {
     await waitFor(() => {
       expect(screen.getByTestId('header-place')).toHaveTextContent('Koblenz · Stadtmitte');
     });
+  });
+});
+
+/**
+ * What the popup says about calculated dates **when nothing has gone wrong**.
+ *
+ * A calculated date rests on two separate things, established two different ways: an automatic check of
+ * the operator's published documents, and a person reading the announcements that nothing automatic
+ * covers. The popup used to name either only while failing, so the one reading where somebody is most
+ * likely to act on a date — everything verified, dates on screen — was the one reading that said nothing
+ * about when it was last checked or how far the manual review had got.
+ *
+ * Driven through the real popup: the stored settings, the real messaging transport, the real worker
+ * request kind.
+ */
+describe('provenance for calculated household collections', () => {
+  const HOUSEHOLD = {
+    providerId: OFFICIAL_PROVIDER_ID,
+    serviceAreaId: OFFICIAL_AREA_ID,
+    weekday: 2 as const,
+  };
+
+  const RULES = {
+    providerId: OFFICIAL_PROVIDER_ID,
+    cityId: OFFICIAL_CITY_ID,
+    coverage: { from: '2026-01-01', to: '2026-12-26' },
+    parity: { even: 'bio', odd: 'residual' },
+    replacements: [],
+    source: {
+      name: 'Kommunaler Servicebetrieb',
+      attribution: 'Kommunaler Servicebetrieb, Koblenz',
+      landingPageUrl: 'https://servicebetrieb.koblenz.de/abfallwirtschaft/entsorgungstermine/',
+      replacementsSourceUrl: 'https://servicebetrieb.koblenz.de/downloads/x.jpg',
+      parityRuleSourceUrl: 'https://servicebetrieb.koblenz.de/abfallwirtschaft/entsorgungstermine/',
+      timeZone: 'Europe/Berlin',
+    },
+    revision: '2026.1',
+    checkedAt: '2026-09-23T08:00:00.000Z',
+    announcementsReviewedThrough: '2026-09-20',
+    checks: { table: 'verified', parityRule: 'verified', tableLink: 'verified' },
+    verification: 'verified',
+  };
+
+  /** The bins on, the rules verified, the dates therefore shown: the ordinary successful reading. */
+  const showVerified = async (
+    overrides: Partial<typeof RULES> = {},
+    settings: Partial<AppSettings> = {},
+  ) => {
+    await writeSettings({
+      ...STORED,
+      visibleWasteTypes: ['paper', 'bio', 'residual'],
+      household: HOUSEHOLD,
+      ...settings,
+    });
+
+    stubWorker({
+      answers: { get_household_rules: { ok: true, data: { ...RULES, ...overrides } } },
+    });
+
+    render(<App />);
+
+    return await screen.findByTestId('household-provenance');
+  };
+
+  it('states the automatic check and when it ran, with everything verified', async () => {
+    const provenance = await showVerified();
+
+    expect(provenance).toHaveTextContent('Automatische Quellprüfung');
+    // The instant the check ran, which is what "how current is this" actually means.
+    expect(provenance).toHaveTextContent('23.09.2026');
+    expect(provenance).toHaveTextContent('unverändert');
+  });
+
+  it('states the separately reviewed announcements, and that they are read by hand', async () => {
+    const provenance = await showVerified();
+
+    // A different date from the check, because it is a different kind of statement.
+    expect(provenance).toHaveTextContent('20.09.2026');
+    expect(provenance).toHaveTextContent('von Hand gelesen');
+    expect(provenance).toHaveTextContent('nicht automatisch geprüft');
+  });
+
+  it('keeps saying both while the check could not run', async () => {
+    const provenance = await showVerified({
+      checks: { table: 'unverified', parityRule: 'unverified', tableLink: 'unverified' },
+      verification: 'unverified',
+    });
+
+    expect(provenance).toHaveTextContent('konnten nicht geprüft werden');
+    expect(provenance).toHaveTextContent('von Hand gelesen');
+  });
+
+  it('keeps saying both once the operator has moved on from the transcription', async () => {
+    const provenance = await showVerified({
+      checks: { table: 'changed', parityRule: 'verified', tableLink: 'verified' },
+      verification: 'changed',
+    });
+
+    // The dates are withheld in this state, and the reason they are withheld is still stated in full.
+    expect(provenance).toHaveTextContent('haben sich geändert');
+    expect(provenance).toHaveTextContent('von Hand gelesen');
+  });
+
+  it.each([
+    ['en' as const, 'Automatic source check', 'read by hand'],
+    ['uk' as const, 'Автоматична перевірка джерел', 'вручну'],
+    ['ru' as const, 'Автоматическая проверка источников', 'вручную'],
+  ])('says both in %s', async (locale, check, announcements) => {
+    const provenance = await showVerified({}, { locale });
+
+    expect(provenance).toHaveTextContent(check);
+    expect(provenance).toHaveTextContent(announcements);
+  });
+
+  it('says nothing at all when the bins are switched off', async () => {
+    await writeSettings(STORED);
+
+    stubWorker();
+
+    render(<App />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('provenance')).toBeInTheDocument();
+    });
+
+    // No rules were read, so there is no check and no review to describe.
+    expect(screen.queryByTestId('household-provenance')).not.toBeInTheDocument();
   });
 });

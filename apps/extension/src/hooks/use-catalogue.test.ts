@@ -164,6 +164,11 @@ const createStubClient = ({ replies = [AREAS_OK], catalogue }: AreaStubOptions =
     ...settingsOperationsRefused,
     ...scheduleOperationsRefused,
     listCities: async () => ({ ok: true as const, data: [] }),
+    /* The household bins are opt-in; a test that does not enable them never asks for the rules. */
+    getHouseholdRules: async () => ({
+      ok: false as const,
+      failure: { kind: 'network' as const, operation: 'getHouseholdRules' as const },
+    }),
     savePresentation: async () => {
       throw new Error('savePresentation is not used by this test');
     },
@@ -449,6 +454,11 @@ describe('the provider catalogue itself', () => {
       ...settingsOperationsRefused,
       ...scheduleOperationsRefused,
       listCities: async () => ({ ok: true as const, data: [] }),
+      /* The household bins are opt-in; a test that does not enable them never asks for the rules. */
+      getHouseholdRules: async () => ({
+        ok: false as const,
+        failure: { kind: 'network' as const, operation: 'getHouseholdRules' as const },
+      }),
       savePresentation: async () => {
         throw new Error('savePresentation is not used by this test');
       },
@@ -563,6 +573,11 @@ describe('the provider catalogue itself', () => {
       ...settingsOperationsRefused,
       ...scheduleOperationsRefused,
       listCities: async () => ({ ok: true as const, data: [] }),
+      /* The household bins are opt-in; a test that does not enable them never asks for the rules. */
+      getHouseholdRules: async () => ({
+        ok: false as const,
+        failure: { kind: 'network' as const, operation: 'getHouseholdRules' as const },
+      }),
       savePresentation: async () => {
         throw new Error('savePresentation is not used by this test');
       },
@@ -620,6 +635,11 @@ describe('a failed provider catalogue', () => {
       ...settingsOperationsRefused,
       ...scheduleOperationsRefused,
       listCities: async () => ({ ok: true as const, data: [] }),
+      /* The household bins are opt-in; a test that does not enable them never asks for the rules. */
+      getHouseholdRules: async () => ({
+        ok: false as const,
+        failure: { kind: 'network' as const, operation: 'getHouseholdRules' as const },
+      }),
       savePresentation: async () => {
         throw new Error('savePresentation is not used by this test');
       },

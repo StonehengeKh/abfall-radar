@@ -14,6 +14,8 @@ import {
   type GatewayRequest,
   GatewayRequestSchema,
   type GatewayResponse,
+  type HouseholdRulesSummary,
+  HouseholdRulesSummarySchema,
   isSettingsRequest,
   type ProviderSummary,
   type RestoredSchedulePayload,
@@ -103,6 +105,8 @@ export interface Gateway {
    */
   listCities(): Promise<GatewayResult<CitySummary[]>>;
   listProviders(): Promise<GatewayResult<ProviderSummary[]>>;
+  /** The municipal rules for the bins this provider publishes no calendar for. */
+  getHouseholdRules(providerId: string): Promise<GatewayResult<HouseholdRulesSummary>>;
   listServiceAreas(providerId: string): Promise<GatewayResult<ServiceAreaSummary[]>>;
   listCollectionEvents(request: {
     readonly providerId: string;
@@ -325,6 +329,7 @@ export const createGateway = ({
    * could only be read by asserting what came out of it.
    */
   const cityFlights = new Map<string, Promise<GatewayResult<CitySummary[]>>>();
+  const householdRuleFlights = new Map<string, Promise<GatewayResult<HouseholdRulesSummary>>>();
   const providerFlights = new Map<string, Promise<GatewayResult<ProviderSummary[]>>>();
 
   const serviceAreaFlights = new Map<string, Promise<GatewayResult<ServiceAreaSummary[]>>>();
@@ -735,6 +740,43 @@ export const createGateway = ({
     return { ok: true, data: toCitySummaries(result.data) };
   };
 
+  /**
+   * The municipal rules for the bins the operator publishes no calendar for.
+   *
+   * Validated again on the way out, like every other payload crossing this boundary: the popup turns
+   * these rules into dates somebody acts on, so a malformed replacement must be a failure here rather
+   * than a plausible date there.
+   */
+  const readHouseholdRules = async (
+    providerId: string,
+  ): Promise<GatewayResult<HouseholdRulesSummary>> => {
+    const result = await client.getHouseholdRules(providerId);
+
+    if (!result.ok) {
+      const failure = toGatewayFailure(result.failure);
+
+      logFailure(logger, failure);
+
+      return { ok: false, failure };
+    }
+
+    const parsed = HouseholdRulesSummarySchema.safeParse(result.data.data);
+
+    if (!parsed.success) {
+      const failure = {
+        kind: 'invalid_response',
+        operation: 'getHouseholdRules',
+        status: 0,
+      } as const;
+
+      logFailure(logger, failure);
+
+      return { ok: false, failure };
+    }
+
+    return { ok: true, data: parsed.data };
+  };
+
   const readProviders = async (): Promise<GatewayResult<ProviderSummary[]>> => {
     const result = await client.listProviders();
 
@@ -851,6 +893,9 @@ export const createGateway = ({
   const listProviders = (): Promise<GatewayResult<ProviderSummary[]>> =>
     coalesce(providerFlights, 'list_providers', readProviders);
 
+  const getHouseholdRules = (providerId: string): Promise<GatewayResult<HouseholdRulesSummary>> =>
+    coalesce(householdRuleFlights, providerId, () => readHouseholdRules(providerId));
+
   const listServiceAreas = (providerId: string): Promise<GatewayResult<ServiceAreaSummary[]>> =>
     coalesce(serviceAreaFlights, providerId, () => readServiceAreas(providerId));
 
@@ -949,6 +994,7 @@ export const createGateway = ({
         case 'save_settings': {
           const result = await persistSettings({
             expectedSelection: request.expectedSelection,
+            expectedHousehold: request.expectedHousehold,
             // The version is this build's to state, never something a caller may assert.
             settings: {
               version: SETTINGS_SCHEMA_VERSION,
@@ -957,6 +1003,7 @@ export const createGateway = ({
               reminderDaysBefore: request.reminderDaysBefore,
               reminderTime: request.reminderTime,
               visibleWasteTypes: [...request.visibleWasteTypes],
+              household: request.household,
             },
             ...(request.evidence === undefined ? {} : { evidence: request.evidence }),
           });
@@ -1033,6 +1080,9 @@ export const createGateway = ({
       case 'list_providers':
         return listProviders();
 
+      case 'get_household_rules':
+        return getHouseholdRules(request.providerId);
+
       case 'list_service_areas':
         return listServiceAreas(request.providerId);
 
@@ -1068,6 +1118,7 @@ export const createGateway = ({
 
   return {
     listCities,
+    getHouseholdRules,
     listProviders,
     listServiceAreas,
     listCollectionEvents,
@@ -1138,6 +1189,8 @@ const operationOf = (request: GatewayRequest) => {
       return 'listCities' as const;
     case 'list_providers':
       return 'listProviders' as const;
+    case 'get_household_rules':
+      return 'getHouseholdRules' as const;
     case 'list_service_areas':
       return 'listServiceAreas' as const;
     case 'list_collection_events':

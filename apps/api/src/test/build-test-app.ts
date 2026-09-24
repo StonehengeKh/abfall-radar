@@ -1,6 +1,6 @@
 import type { Writable } from 'node:stream';
 import { z } from 'zod';
-import { type ApiApp, buildApp, type BuildAppOptions } from '../app';
+import { type ApiApp, type BuildAppOptions, buildApp } from '../app';
 import type { AppConfig } from '../config/env';
 
 export const FAILING_ROUTE = '/__unexpected';

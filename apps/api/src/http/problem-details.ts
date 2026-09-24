@@ -1,4 +1,4 @@
-import { type SourceFailureError, isSourceFailureError } from '@abfall-radar/data-providers';
+import { isSourceFailureError, type SourceFailureError } from '@abfall-radar/data-providers';
 import { z } from 'zod';
 
 /**

@@ -6,6 +6,10 @@ import {
   CollectionEventListResponseSchema,
   type ScheduleRange,
 } from './contracts/collection-events';
+import {
+  type HouseholdRulesResponse,
+  HouseholdRulesResponseSchema,
+} from './contracts/household-rules';
 import { ProblemDetailsSchema, toProblemFailure } from './contracts/problem-details';
 import {
   type CityListResponse,
@@ -83,6 +87,17 @@ export interface ApiClient {
   listCollectionEvents(
     query: CollectionEventsQuery,
   ): Promise<ApiResult<CollectionEventListResponse>>;
+  /**
+   * The municipal rules for the bins a provider publishes no calendar for.
+   *
+   * Rules rather than events, and per provider rather than per district: the weekday that turns them
+   * into dates belongs to the household and never leaves the client, so no address is sent to ask for
+   * them. A provider with no transcribed rules answers `404`, which is a `problem` failure here.
+   */
+  getHouseholdRules(
+    providerId: string,
+    options?: RequestOptions,
+  ): Promise<ApiResult<HouseholdRulesResponse>>;
 }
 
 const failure = <Data>(value: ApiFailure): ApiResult<Data> => ({ ok: false, failure: value });
@@ -376,6 +391,15 @@ export const createApiClient = ({
 
     async listCities(options = {}) {
       return request('listCities', `${API_V1_PREFIX}/cities`, CityListResponseSchema, options);
+    },
+
+    async getHouseholdRules(providerId, options = {}) {
+      return request(
+        'getHouseholdRules',
+        `${API_V1_PREFIX}/providers/${encodeURIComponent(providerId)}/household-rules`,
+        HouseholdRulesResponseSchema,
+        options,
+      );
     },
 
     async listProviders(options = {}) {

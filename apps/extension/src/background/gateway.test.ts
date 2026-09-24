@@ -126,6 +126,10 @@ const createStubClient = (options: StubOptions = {}) => {
     origin: ORIGIN,
     timeoutMs: 8000,
     listCities: async () => ok({ data: [] }),
+    /* The popup never asks the worker for household rules through this path; a call here is a defect. */
+    getHouseholdRules: async () => {
+      throw new Error('getHouseholdRules is not used by this test.');
+    },
     async listProviders() {
       calls.listProviders += 1;
 
@@ -630,6 +634,10 @@ describe('coalescing across the message boundary and the worker', () => {
         origin: ORIGIN,
         timeoutMs: 8000,
         listCities: async () => ok({ data: [] }),
+        /* The popup never asks the worker for household rules through this path; a call here is a defect. */
+        getHouseholdRules: async () => {
+          throw new Error('getHouseholdRules is not used by this test.');
+        },
         listProviders,
         listServiceAreas: async () => ok({ data: API_AREAS }),
         listCollectionEvents: async () => ok(collectionEventsResponse()),
@@ -1196,6 +1204,10 @@ describe('the local cache invalidation', () => {
         origin: ORIGIN,
         timeoutMs: 8000,
         listCities: async () => ok({ data: [] }),
+        /* The popup never asks the worker for household rules through this path; a call here is a defect. */
+        getHouseholdRules: async () => {
+          throw new Error('getHouseholdRules is not used by this test.');
+        },
         listProviders: async () => ok({ data: CATALOGUE_WITH_DEMO }),
         listServiceAreas: async () => ok({ data: API_AREAS }),
         listCollectionEvents: async (query) => {
@@ -1977,6 +1989,10 @@ describe('the local cache invalidation', () => {
         origin: ORIGIN,
         timeoutMs: 8000,
         listCities: async () => ok({ data: [] }),
+        /* The popup never asks the worker for household rules through this path; a call here is a defect. */
+        getHouseholdRules: async () => {
+          throw new Error('getHouseholdRules is not used by this test.');
+        },
         listProviders: async () => ok({ data: CATALOGUE_WITH_DEMO }),
         listServiceAreas: async () => ok({ data: API_AREAS }),
         listCollectionEvents: async (query) => {
@@ -2100,6 +2116,10 @@ describe('the handler contract', () => {
       origin: ORIGIN,
       timeoutMs: 8000,
       listCities: () => Promise.resolve({ ok: true as const, data: { data: [] } }),
+      /* The popup never asks the worker for household rules through this path; a call here is a defect. */
+      getHouseholdRules: async () => {
+        throw new Error('getHouseholdRules is not used by this test.');
+      },
       listProviders: () => Promise.reject(new Error('unexpected: https://internal/path')),
       listServiceAreas: () => Promise.reject(new Error('unexpected')),
       listCollectionEvents: () => Promise.reject(new Error('unexpected')),
@@ -2131,6 +2151,10 @@ describe('the handler contract', () => {
         origin: ORIGIN,
         timeoutMs: 8000,
         listCities: async () => ok({ data: [] }),
+        /* The popup never asks the worker for household rules through this path; a call here is a defect. */
+        getHouseholdRules: async () => {
+          throw new Error('getHouseholdRules is not used by this test.');
+        },
         listProviders,
         listServiceAreas: async () => ok({ data: API_AREAS }),
         listCollectionEvents: async () => ok(collectionEventsResponse()),
@@ -2272,6 +2296,10 @@ describe('a late response after an invalidation', () => {
       origin: ORIGIN,
       timeoutMs: 8000,
       listCities: async () => ok({ data: [] }),
+      /* The popup never asks the worker for household rules through this path; a call here is a defect. */
+      getHouseholdRules: async () => {
+        throw new Error('getHouseholdRules is not used by this test.');
+      },
       listProviders: async () => ok({ data: CATALOGUE_WITH_DEMO }),
       listServiceAreas: async () => ok({ data: API_AREAS }),
       listCollectionEvents: async () => {
@@ -2573,11 +2601,13 @@ describe('the settings intents', () => {
       gateway.handle({
         kind: 'save_settings',
         expectedSelection: SELECTION_A,
+        expectedHousehold: null,
         selection: SELECTION_B,
         remindersEnabled: false,
         reminderDaysBefore: 3,
         reminderTime: '20:00',
         visibleWasteTypes: ['bio'],
+        household: null,
         evidence: evidenceFor(SELECTION_B),
       }),
     ]);
@@ -2723,6 +2753,7 @@ describe('the settings intents', () => {
         reminderDaysBefore: 1,
         reminderTime: '18:00',
         visibleWasteTypes: ['paper'],
+        household: null,
       },
     ],
     [
@@ -2734,6 +2765,7 @@ describe('the settings intents', () => {
         reminderDaysBefore: 9,
         reminderTime: '18:00',
         visibleWasteTypes: ['paper'],
+        household: null,
       },
     ],
     [
@@ -2745,6 +2777,7 @@ describe('the settings intents', () => {
         reminderDaysBefore: 1,
         reminderTime: '25:00',
         visibleWasteTypes: ['paper'],
+        household: null,
       },
     ],
     [
@@ -2756,6 +2789,7 @@ describe('the settings intents', () => {
         reminderDaysBefore: 1,
         reminderTime: '18:00',
         visibleWasteTypes: [],
+        household: null,
       },
     ],
     ['an invalidation with no expected selection', { kind: 'invalidate_selection_if_matches' }],
@@ -2777,6 +2811,7 @@ describe('the settings intents', () => {
 
     const { gateway } = gatewayWith();
 
+    // Deliberately malformed: no expected selection, no reminder fields, an empty waste-type list.
     await gateway.handle({ kind: 'save_settings', selection: null, visibleWasteTypes: [] });
 
     expect(await storedSelection()).toEqual(SELECTION_A);
@@ -2827,6 +2862,10 @@ describe('a collection response superseded by an invalidation', () => {
       origin: ORIGIN,
       timeoutMs: 8000,
       listCities: async () => ok({ data: [] }),
+      /* The popup never asks the worker for household rules through this path; a call here is a defect. */
+      getHouseholdRules: async () => {
+        throw new Error('getHouseholdRules is not used by this test.');
+      },
       listProviders: async () => ok({ data: CATALOGUE_WITH_DEMO }),
       listServiceAreas: async () => ok({ data: API_AREAS }),
       listCollectionEvents: async (query) => {
@@ -2949,6 +2988,10 @@ describe('a collection response superseded by an invalidation', () => {
       origin: ORIGIN,
       timeoutMs: 8000,
       listCities: async () => ok({ data: [] }),
+      /* The popup never asks the worker for household rules through this path; a call here is a defect. */
+      getHouseholdRules: async () => {
+        throw new Error('getHouseholdRules is not used by this test.');
+      },
       listProviders: async () => ok({ data: CATALOGUE_WITH_DEMO }),
       listServiceAreas: async () => ok({ data: API_AREAS }),
       listCollectionEvents: async () => {
@@ -3514,11 +3557,14 @@ describe('a stale Settings draft', () => {
     ({
       kind: 'save_settings',
       expectedSelection,
+      // These drafts opened with the household bins off, which is what they state as their premise.
+      expectedHousehold: null,
       selection,
       remindersEnabled: false,
       reminderDaysBefore: 3,
       reminderTime: '20:00',
       visibleWasteTypes: ['bio'],
+      household: null,
       ...(selection === null ? {} : { evidence: evidenceFor(selection) }),
     }) as const;
 
@@ -3620,11 +3666,13 @@ describe('a stale Settings draft', () => {
     const response = await gateway.handle({
       kind: 'save_settings',
       expectedSelection: SELECTION_A,
+      expectedHousehold: null,
       selection: SELECTION_A,
       remindersEnabled: false,
       reminderDaysBefore: 3,
       reminderTime: '20:00',
       visibleWasteTypes: ['bio'],
+      household: null,
     });
 
     expect(response.ok === true && response.data).toMatchObject({ outcome: 'persisted' });

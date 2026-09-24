@@ -48,6 +48,7 @@ flowchart TD
 | Request | Performs |
 | --- | --- |
 | `list_cities` | `GET /api/v1/cities` |
+| `get_household_rules` | `GET /api/v1/providers/{providerId}/household-rules` |
 | `list_providers` | `GET /api/v1/providers` |
 | `list_service_areas` | `GET /api/v1/providers/{providerId}/service-areas` |
 | `list_collection_events` | `GET .../collection-events?from&to` |
@@ -233,17 +234,21 @@ popup and the background path go through it, because a second raw reader is how 
 reaches a product surface. It also refuses to persist a selection for an area whose capability says no
 calendar is published, so that guarantee does not rest on the UI.
 
-### The current shape, version 3
+### The current shape, version 4
 
 | Field | Added | Default |
 | --- | --- | --- |
 | `selection` | v2 | `null` |
 | `remindersEnabled`, `reminderDaysBefore`, `reminderTime` | v1 | unchanged |
 | `visibleWasteTypes` | v1 | unchanged |
-| `locale` | **v3** | `'de'` |
-| `appearance` | **v3** | `'system'` |
+| `locale` | v3 | `'de'` |
+| `appearance` | v3 | `'system'` |
+| `household` | **v4** | `null` |
 
-Version 3 added the interface language and the appearance
+Version 4 added the household bins' weekday — `{ providerId, serviceAreaId, weekday }` or `null` — bound
+to the district it was confirmed for, so it is never applied to another
+([ADR 0007](../../docs/decisions/0007-calculated-household-collections.md)). Version 3 added the
+interface language and the appearance
 ([ADR 0004 addendum 1](../../docs/decisions/0004-addendum-1-extension-web-alignment.md)). The selection
 keeps its version-2 shape: the city is **not** stored, it is derived from the district when the selection
 is revalidated.
@@ -255,9 +260,10 @@ popup never resets a preference.
 
 | Stored value | Becomes |
 | --- | --- |
-| Unversioned legacy record | The district mapping below, plus the version-3 defaults |
-| Version 2 | Every stored value kept, plus `locale: 'de'` and `appearance: 'system'` |
-| Version 3 | Returned as it is |
+| Unversioned legacy record | The district mapping below, plus the current defaults — including `locale: 'de'`, `appearance: 'system'` and `household: null` |
+| Version 2 | Every stored value kept, plus `locale: 'de'`, `appearance: 'system'` and `household: null` |
+| Version 3 | Every stored value kept, plus `household: null` |
+| Version 4 | Returned as it is |
 | A newer version | **Refused and left intact** — the popup reports it as unsupported, and nothing is written |
 | Nothing stored, or content no schema accepts | Defaults **in memory** for this session, and nothing is written: the stored value, whatever it is, is left exactly as it is. The read itself succeeded, so the popup is `ready` and usable |
 
@@ -280,6 +286,29 @@ No other legacy identifier has a verified official counterpart, so none is inven
 similarity would silently move someone to an area nobody checked, and a wrong collection area produces
 confidently wrong dates. Unrelated settings are preserved in every path, and the new version is written
 **only** after a successful migration.
+
+## Calculated household collections
+
+The operator publishes no calendar for the Braune and Graue Tonne, and no per-address weekday. With a
+weekday somebody confirms in Settings, the popup calculates those collections from the operator's
+published rules, which the worker reads through `get_household_rules`.
+
+- They are **labelled** wherever they appear — a "Berechnet" badge on the card and every row, and a
+  sentence in the reminder saying the date was calculated from the operator's rules and a confirmed
+  weekday.
+- They are merged into the one ordered list with official events, never deduplicated against them, and
+  they never change an official event's date, label or order.
+- The weekday is stored with the district it was confirmed for. Changing district switches them off.
+- Nothing is generated past the period the published rules cover; the popup says so instead.
+- A transcription the operator has moved on from (`verification: 'changed'`) withholds the dates
+  everywhere, including the reminder.
+
+One notification per morning names everything due that day, official and calculated together, so two
+collections on one day never produce two notifications — or one that mentions only half of them.
+
+See [ADR 0007](../../docs/decisions/0007-calculated-household-collections.md) and
+[AR-007](../../docs/tasks/AR-007-household-bin-schedules.md), which records what the automatic checks do
+and do not establish, and what still needs a person to read.
 
 ## Unavailable service areas
 

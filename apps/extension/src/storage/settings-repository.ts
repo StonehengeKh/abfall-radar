@@ -3,6 +3,7 @@ import { notifySettingsChanged } from '@/src/background/settings-broadcast';
 import { describesArea, type ServiceAreaCapabilityEvidence } from '@/src/schedule/capability';
 import {
   type AppSettings,
+  type HouseholdSetup,
   AppSettingsSchema,
   type PresentationPreferences,
   type ServiceAreaSelection,
@@ -268,6 +269,19 @@ export interface PersistSettingsInput {
    * which is the whole protection. Every Settings session captures this when it opens.
    */
   readonly expectedSelection: ServiceAreaSelection | null;
+  /**
+   * The household setup that was stored when the draft was created.
+   *
+   * The selection alone was not a sufficient premise. Two Settings windows can sit on the **same**
+   * district while one of them switches the calculated bins off; the other's draft still carries the old
+   * setup, and saving an unrelated reminder edit from it would silently restore a schedule somebody had
+   * just disabled — along with the reminders that come with it.
+   *
+   * So the draft states what it believed about this field too, and a save whose belief is out of date is
+   * refused rather than applied. Language and appearance need no equivalent: they are never part of a
+   * draft, because `persistPresentation` writes them field by field.
+   */
+  readonly expectedHousehold: HouseholdSetup | null;
 }
 
 /**
@@ -309,6 +323,17 @@ const sameSelection = (
 };
 
 /**
+ * Structural comparison of two household setups, for the same reason `sameSelection` is structural: the
+ * two values come from different reads and are never the same object.
+ */
+const sameHousehold = (left: HouseholdSetup | null, right: HouseholdSetup | null): boolean =>
+  left === null || right === null
+    ? left === right
+    : left.providerId === right.providerId &&
+      left.serviceAreaId === right.serviceAreaId &&
+      left.weekday === right.weekday;
+
+/**
  * Persists a complete settings value as **one** logical operation.
  *
  * This is what the settings surface saves through. It exists so a save is never a sequence of partial
@@ -323,6 +348,7 @@ export const persistSettings = async ({
   settings,
   evidence,
   expectedSelection,
+  expectedHousehold,
 }: PersistSettingsInput): Promise<SettingsWriteResult> =>
   // Serialized with every other read-modify-write, so both checks below read the same stored value this
   // operation then writes against.
@@ -347,6 +373,14 @@ export const persistSettings = async ({
      * applying half of it would persist a combination the person never saw.
      */
     if (!sameSelection(current.selection, expectedSelection)) {
+      return { outcome: 'conflict', currentSettings: current };
+    }
+
+    /*
+     * The same check for the household bins, and for the same reason: the draft is one transactional
+     * value, and a premise that has moved on makes the whole of it stale — not just the field that moved.
+     */
+    if (!sameHousehold(current.household, expectedHousehold)) {
       return { outcome: 'conflict', currentSettings: current };
     }
 

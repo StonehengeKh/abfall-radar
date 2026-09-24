@@ -8,6 +8,7 @@ import {
   SETTINGS_SCHEMA_VERSION,
   type ServiceAreaSelection,
   SettingsV2Schema,
+  SettingsV3Schema,
 } from './settings';
 
 /**
@@ -114,6 +115,38 @@ export const migrateSettings = (raw: unknown): SettingsMigration => {
         reminderTime: previous.data.reminderTime,
         visibleWasteTypes: [...previous.data.visibleWasteTypes],
         ...DEFAULT_PRESENTATION,
+        // Version 2 knew nothing about the household bins, and nothing may be assumed for them.
+        household: null,
+      },
+    };
+  }
+
+  /**
+   * 3b. Version 3 becomes version 4 by gaining the household setup, switched **off**.
+   *
+   * Every stored value survives, including the language and appearance version 3 introduced. The new
+   * field starts `null` because the weekday it would hold is something only the household knows — there
+   * is no default that could be right, and a guessed one would produce confident dates for a route
+   * nobody confirmed.
+   *
+   * Idempotent across reopenings for the same reason the previous step is: once version 4 is written,
+   * step 2 answers `current` and nothing is migrated again.
+   */
+  const version3 = SettingsV3Schema.safeParse(raw);
+
+  if (version3.success) {
+    return {
+      outcome: 'migrated',
+      settings: {
+        version: SETTINGS_SCHEMA_VERSION,
+        selection: version3.data.selection === null ? null : { ...version3.data.selection },
+        remindersEnabled: version3.data.remindersEnabled,
+        reminderDaysBefore: version3.data.reminderDaysBefore,
+        reminderTime: version3.data.reminderTime,
+        visibleWasteTypes: [...version3.data.visibleWasteTypes],
+        locale: version3.data.locale,
+        appearance: version3.data.appearance,
+        household: null,
       },
     };
   }
@@ -160,6 +193,7 @@ export const migrateSettings = (raw: unknown): SettingsMigration => {
       reminderTime: legacy.data.reminderTime,
       visibleWasteTypes: [...legacy.data.visibleWasteTypes],
       ...DEFAULT_PRESENTATION,
+      household: null,
     },
   };
 };

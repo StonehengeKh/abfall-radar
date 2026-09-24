@@ -2,21 +2,25 @@ import { createApiClient } from '@abfall-radar/api-client';
 import type { CollectionEvent } from '@abfall-radar/domain';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { fakeBrowser } from 'wxt/testing';
-import type { RestoredSchedulePayload } from '@/src/messaging/contract';
+import type { HouseholdRulesSummary, RestoredSchedulePayload } from '@/src/messaging/contract';
 import { writeCacheEntry } from '@/src/storage/schedule-cache';
-import { defaultSettings } from '@/src/storage/settings';
+import { defaultSettings, type HouseholdSetup } from '@/src/storage/settings';
 import {
   invalidateSelectionIfMatches,
+  persistSelection,
+  persistSettings,
   readSettings,
   writeSettings,
 } from '@/src/storage/settings-repository';
 import {
   curbsideEvent,
+  evidenceFor,
   mobileDropOffEvent,
   OFFICIAL_AREA_ID,
   OFFICIAL_PROVIDER_ID,
   restoredSchedule,
   schedule,
+  UNAVAILABLE_AREA_ID,
 } from '@/src/test/fixtures';
 import { createGateway, type Gateway } from './gateway';
 import {
@@ -59,6 +63,11 @@ const createStubGateway = (restored: RestoredSchedulePayload | null) => {
   const listProviders = vi
     .fn<Gateway['listProviders']>()
     .mockResolvedValue({ ok: false, failure: unreachable });
+  /** Unreachable by default: a reminder calculates household bins only when the rules can be read. */
+  const getHouseholdRules = vi.fn<Gateway['getHouseholdRules']>().mockResolvedValue({
+    ok: false,
+    failure: { kind: 'network', operation: 'getHouseholdRules' },
+  });
   const listServiceAreas = vi
     .fn<Gateway['listServiceAreas']>()
     .mockResolvedValue({ ok: false, failure: unreachable });
@@ -70,6 +79,7 @@ const createStubGateway = (restored: RestoredSchedulePayload | null) => {
     gateway: {
       handle,
       listCities,
+      getHouseholdRules,
       listProviders,
       listServiceAreas,
       listCollectionEvents,
@@ -78,6 +88,7 @@ const createStubGateway = (restored: RestoredSchedulePayload | null) => {
     },
     restoreCachedSchedule,
     invalidateCachedSchedule,
+    getHouseholdRules,
     listProviders,
     listServiceAreas,
     listCollectionEvents,
@@ -1769,5 +1780,545 @@ describe('the message a notification carries, decided by collection mode', () =>
       DROP_OFF.collectionMode === 'mobile_drop_off' ? DROP_OFF.location.name : '',
     );
     expect(message).toMatch(/\d{2}:\d{2}–\d{2}:\d{2}/);
+  });
+});
+
+/**
+ * The calculated household bins in the **background** path, which is where they are least visible and
+ * most consequential: a notification is unprompted and tells somebody to put a bin outside.
+ *
+ * Every case below is one the popup would withhold the dates in, and the rule is the same in both places.
+ */
+describe('household bins in a reminder', () => {
+  /*
+   * Spies are removed between tests: `vi.spyOn` on an already-spied method hands back the existing mock,
+   * history and all, so without this one test's notification would be counted in the next one's.
+   */
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  /** Koblenz rules as the worker serves them, with the parity and one Vorverlegung that matters. */
+  const RULES = {
+    providerId: OFFICIAL_PROVIDER_ID,
+    cityId: 'koblenz',
+    coverage: { from: '2026-01-01', to: '2026-12-26' },
+    parity: { even: 'bio' as const, odd: 'residual' as const },
+    replacements: [{ nominalDate: '2026-03-30', actualDate: '2026-03-28', reason: 'Karfreitag' }],
+    source: {
+      name: 'Kommunaler Servicebetrieb',
+      attribution: 'Kommunaler Servicebetrieb, Koblenz',
+      landingPageUrl: 'https://servicebetrieb.koblenz.de/abfallwirtschaft/entsorgungstermine/',
+      replacementsSourceUrl: 'https://servicebetrieb.koblenz.de/downloads/x.jpg',
+      parityRuleSourceUrl: 'https://servicebetrieb.koblenz.de/abfallwirtschaft/entsorgungstermine/',
+      timeZone: 'Europe/Berlin',
+    },
+    revision: '2026.1',
+    checkedAt: '2026-09-23T08:00:00.000Z',
+    announcementsReviewedThrough: '2026-09-23',
+    checks: {
+      table: 'verified' as const,
+      parityRule: 'verified' as const,
+      tableLink: 'verified' as const,
+    },
+    verification: 'verified' as const,
+  };
+
+  /** Tuesday 2026-03-10 is the day after `NOW`, so Tuesday is this household's weekday. */
+  const HOUSEHOLD: HouseholdSetup = { ...SELECTION, weekday: 2 };
+
+  const settingsWith = async (
+    household: HouseholdSetup | null,
+    overrides: Partial<Parameters<typeof writeSettings>[0]> = {},
+  ) => {
+    await writeSettings({
+      ...defaultSettings,
+      selection: SELECTION,
+      visibleWasteTypes: ['paper', 'bio', 'residual'],
+      household,
+      ...overrides,
+    });
+  };
+
+  const runWith = async (
+    rules: HouseholdRulesSummary | null,
+    { restored = null }: { restored?: RestoredSchedulePayload | null } = {},
+  ) => {
+    const { gateway, getHouseholdRules } = createStubGateway(restored);
+
+    getHouseholdRules.mockResolvedValue(
+      rules === null
+        ? { ok: false, failure: { kind: 'network', operation: 'getHouseholdRules' } }
+        : { ok: true, data: rules },
+    );
+
+    const created = watchNotifications();
+
+    await showReminder({ gateway, now: () => NOW });
+
+    return { created, getHouseholdRules };
+  };
+
+  const optionsOf = (created: ReturnType<typeof watchNotifications>) =>
+    created.mock.calls[0]?.find((argument) => typeof argument === 'object' && argument !== null) as
+      | { readonly title?: string; readonly message?: string }
+      | undefined;
+
+  it('reminds about a calculated collection and says it was calculated', async () => {
+    await settingsWith(HOUSEHOLD);
+
+    const { created } = await runWith(RULES);
+
+    // 2026-03-10 is a Tuesday in ISO week 11, which is odd, so it is the grey bin.
+    expect(created).toHaveBeenCalledOnce();
+    expect(optionsOf(created)?.title).toBe('Morgen: Restabfall');
+    expect(optionsOf(created)?.message).toContain('Berechnet aus den Regeln des Betriebs');
+  });
+
+  it('says nothing when the bins are switched off', async () => {
+    await settingsWith(null);
+
+    const { created, getHouseholdRules } = await runWith(RULES);
+
+    expect(created).not.toHaveBeenCalled();
+    // Nothing is even asked for: an off setting is not a read.
+    expect(getHouseholdRules).not.toHaveBeenCalled();
+  });
+
+  it('says nothing when the stored weekday belongs to another district', async () => {
+    await settingsWith({ ...HOUSEHOLD, serviceAreaId: 'koblenz-somewhere-else' });
+
+    const { created, getHouseholdRules } = await runWith(RULES);
+
+    // A weekday is a fact about one address; it is never carried to another.
+    expect(created).not.toHaveBeenCalled();
+    expect(getHouseholdRules).not.toHaveBeenCalled();
+  });
+
+  it('says nothing when the rules cannot be read', async () => {
+    await settingsWith(HOUSEHOLD);
+
+    const { created } = await runWith(null);
+
+    // An unreachable source is not evidence about a date, so nothing unprompted is sent.
+    expect(created).not.toHaveBeenCalled();
+    // And the configuration survives it.
+    expect((await readSettings()).household).toEqual(HOUSEHOLD);
+  });
+
+  it('says nothing when the operator has published something other than the transcription', async () => {
+    await settingsWith(HOUSEHOLD);
+
+    const { created } = await runWith({ ...RULES, verification: 'changed' });
+
+    // Exactly what the popup does with `changed`: the dates would be plausible and wrong.
+    expect(created).not.toHaveBeenCalled();
+    expect((await readSettings()).household).toEqual(HOUSEHOLD);
+  });
+
+  it('says nothing past the period the published rules cover', async () => {
+    await settingsWith(HOUSEHOLD);
+
+    // Coverage that ended before the day being reminded about: an expired transcription.
+    const { created } = await runWith({
+      ...RULES,
+      coverage: { from: '2026-01-01', to: '2026-02-01' },
+    });
+
+    expect(created).not.toHaveBeenCalled();
+  });
+
+  it('keeps a moved collection on the nominal week’s waste type', async () => {
+    // Easter: the Monday route is collected on the Saturday before, and stays the nominal week's bin.
+    await settingsWith({ ...HOUSEHOLD, weekday: 1 });
+
+    const created = watchNotifications();
+    const { gateway, getHouseholdRules } = createStubGateway(null);
+
+    getHouseholdRules.mockResolvedValue({ ok: true, data: RULES });
+
+    // The day before Saturday 2026-03-28, which is where Monday 2026-03-30 was moved to.
+    await showReminder({ gateway, now: () => new Date('2026-03-27T18:00:00.000Z') });
+
+    // Week 14 is even, so the moved collection is the brown bin although it lands in odd week 13.
+    expect(optionsOf(created)?.title).toBe('Morgen: Biotonne');
+  });
+
+  it('sends one notification naming both when an official and a calculated collection share a day', async () => {
+    await settingsWith(HOUSEHOLD);
+
+    const { created } = await runWith(RULES, {
+      restored: restoredSchedule({ events: [curbsideEvent('2026-03-10')] }),
+    });
+
+    /*
+     * One message, both bins named: two notifications for one morning is noise, and naming one of them
+     * would leave somebody putting out a single bin when two are due. The order is the product's total
+     * event order — same date, same all-day timing, so the identifier decides, and `calculated:` sorts
+     * before the operator's own identifiers.
+     */
+    expect(created).toHaveBeenCalledOnce();
+    expect(optionsOf(created)?.title).toBe('Morgen: Restabfall und Altpapier');
+    expect(optionsOf(created)?.message).toContain('Berechnet aus den Regeln des Betriebs');
+  });
+
+  it('does not announce the second collection again on a later run', async () => {
+    await settingsWith(HOUSEHOLD);
+
+    const first = await runWith(RULES, {
+      restored: restoredSchedule({ events: [curbsideEvent('2026-03-10')] }),
+    });
+
+    expect(first.created).toHaveBeenCalledOnce();
+    // The spy is shared with the next run, so what it recorded first is cleared rather than counted.
+    first.created.mockClear();
+
+    // Every named collection was recorded as shown, so nothing is left to fire on its own.
+    const { created } = await runWith(RULES, {
+      restored: restoredSchedule({ events: [curbsideEvent('2026-03-10')] }),
+    });
+
+    expect(created).not.toHaveBeenCalled();
+  });
+
+  it('reminds about the official collection even when the rules are unreachable', async () => {
+    await settingsWith(HOUSEHOLD);
+
+    const { created } = await runWith(null, {
+      restored: restoredSchedule({ events: [curbsideEvent('2026-03-10')] }),
+    });
+
+    // The optional extra failing must not take the official reminder with it.
+    expect(created).toHaveBeenCalledOnce();
+    expect(optionsOf(created)?.title).toBe('Morgen: Altpapier');
+    expect(optionsOf(created)?.message).not.toContain('Berechnet');
+  });
+
+  it('respects the waste-type filter', async () => {
+    await settingsWith(HOUSEHOLD, { visibleWasteTypes: ['paper'] });
+
+    const { created } = await runWith(RULES);
+
+    // The grey bin is filtered out, so there is nothing to announce.
+    expect(created).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * Settings changed *while a reminder was being assembled*.
+ *
+ * A run reads settings once and then awaits the cache, possibly a schedule refresh, and the household
+ * rules. Seconds pass, and a notification is unprompted: delivering one built from settings the person has
+ * since replaced is the extension telling somebody to act on a configuration they explicitly abandoned.
+ *
+ * Every test here holds the household-rules request open through the real repository, changes the stored
+ * settings the way the popup would, then releases the request — the actual ordering the defect needed.
+ */
+describe('settings replaced while a reminder is in flight', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  const HOUSEHOLD: HouseholdSetup = { ...SELECTION, weekday: 2 };
+
+  const RULES: HouseholdRulesSummary = {
+    providerId: OFFICIAL_PROVIDER_ID,
+    cityId: 'koblenz',
+    coverage: { from: '2026-01-01', to: '2026-12-26' },
+    parity: { even: 'bio', odd: 'residual' },
+    replacements: [],
+    source: {
+      name: 'Kommunaler Servicebetrieb',
+      attribution: 'Kommunaler Servicebetrieb, Koblenz',
+      landingPageUrl: 'https://servicebetrieb.koblenz.de/abfallwirtschaft/entsorgungstermine/',
+      replacementsSourceUrl: 'https://servicebetrieb.koblenz.de/downloads/x.jpg',
+      parityRuleSourceUrl: 'https://servicebetrieb.koblenz.de/abfallwirtschaft/entsorgungstermine/',
+      timeZone: 'Europe/Berlin',
+    },
+    revision: '2026.1',
+    checkedAt: '2026-09-23T08:00:00.000Z',
+    announcementsReviewedThrough: '2026-09-23',
+    checks: { table: 'verified', parityRule: 'verified', tableLink: 'verified' },
+    verification: 'verified',
+  };
+
+  /** The settings every run below starts from: this district, this household, both bins visible. */
+  const started = {
+    ...defaultSettings,
+    selection: SELECTION,
+    visibleWasteTypes: ['paper', 'bio', 'residual'] as const,
+    household: HOUSEHOLD,
+  };
+
+  /**
+   * Starts a run, waits until the household-rules request is genuinely outstanding, applies `change`
+   * through the real repository, and only then lets the request answer.
+   */
+  const interrupt = async (change: () => Promise<unknown>) => {
+    await writeSettings({ ...started, visibleWasteTypes: [...started.visibleWasteTypes] });
+
+    const { gateway, getHouseholdRules } = createStubGateway(null);
+    let release: (() => void) | undefined;
+
+    getHouseholdRules.mockImplementation(async () => {
+      await new Promise<void>((resolve) => {
+        release = resolve;
+      });
+
+      return { ok: true, data: RULES };
+    });
+
+    const created = watchNotifications();
+    const run = showReminder({ gateway, now: () => NOW });
+
+    await vi.waitFor(() => {
+      expect(release).toBeDefined();
+    });
+
+    await change();
+
+    release?.();
+    await run;
+
+    return { created, gateway };
+  };
+
+  /** Saved the way the popup saves: through the repository, against the settings it was opened on. */
+  const save = (settings: Parameters<typeof writeSettings>[0]) => async () => {
+    const outcome = await persistSettings({
+      expectedSelection: SELECTION,
+      expectedHousehold: HOUSEHOLD,
+      settings,
+    });
+
+    expect(outcome.outcome).toBe('persisted');
+  };
+
+  it('says nothing when the household bins are switched off mid-flight', async () => {
+    const { created } = await interrupt(
+      save({ ...started, visibleWasteTypes: [...started.visibleWasteTypes], household: null }),
+    );
+
+    expect(created).not.toHaveBeenCalled();
+  });
+
+  it('says nothing when the confirmed weekday is changed mid-flight', async () => {
+    const { created } = await interrupt(
+      save({
+        ...started,
+        visibleWasteTypes: [...started.visibleWasteTypes],
+        // A different weekday is a different set of days; the run computed Tuesday's.
+        household: { ...HOUSEHOLD, weekday: 4 },
+      }),
+    );
+
+    expect(created).not.toHaveBeenCalled();
+  });
+
+  it('says nothing when reminders themselves are switched off mid-flight', async () => {
+    const { created } = await interrupt(
+      save({
+        ...started,
+        visibleWasteTypes: [...started.visibleWasteTypes],
+        remindersEnabled: false,
+      }),
+    );
+
+    expect(created).not.toHaveBeenCalled();
+  });
+
+  it('says nothing when the lead time is changed mid-flight', async () => {
+    const { created } = await interrupt(
+      save({
+        ...started,
+        visibleWasteTypes: [...started.visibleWasteTypes],
+        reminderDaysBefore: 0,
+      }),
+    );
+
+    // The run worked out tomorrow's collection; the person now wants to hear about today's.
+    expect(created).not.toHaveBeenCalled();
+  });
+
+  it('says nothing when the configured time is changed mid-flight', async () => {
+    const { created } = await interrupt(
+      save({
+        ...started,
+        visibleWasteTypes: [...started.visibleWasteTypes],
+        reminderTime: '06:30',
+      }),
+    );
+
+    // Saving reschedules the alarm, so the run the old alarm started must let the new one speak.
+    expect(created).not.toHaveBeenCalled();
+  });
+
+  it('says nothing when the waste-type filter stops covering what it was about to name', async () => {
+    const { created } = await interrupt(save({ ...started, visibleWasteTypes: ['paper'] }));
+
+    expect(created).not.toHaveBeenCalled();
+  });
+
+  it('says nothing when the district is changed mid-flight', async () => {
+    const other = { providerId: OFFICIAL_PROVIDER_ID, serviceAreaId: UNAVAILABLE_AREA_ID };
+
+    const { created } = await interrupt(async () => {
+      // The production path a district change takes, capability evidence and all.
+      const outcome = await persistSelection({ selection: other, evidence: evidenceFor(other) });
+
+      expect(outcome.outcome).toBe('persisted');
+    });
+
+    // The confirmed weekday belongs to the old district, so nothing here is still true.
+    expect(created).not.toHaveBeenCalled();
+  });
+
+  it('does not record the morning as shown, so the next run still reminds', async () => {
+    const { created } = await interrupt(
+      save({ ...started, visibleWasteTypes: [...started.visibleWasteTypes], household: null }),
+    );
+
+    expect(created).not.toHaveBeenCalled();
+
+    // The bins go back on, and the reminder that was superseded is still owed.
+    await writeSettings({ ...started, visibleWasteTypes: [...started.visibleWasteTypes] });
+
+    const { gateway, getHouseholdRules } = createStubGateway(null);
+
+    getHouseholdRules.mockResolvedValue({ ok: true, data: RULES });
+
+    await showReminder({ gateway, now: () => NOW });
+
+    expect(created).toHaveBeenCalledOnce();
+  });
+
+  it('still notifies when nothing was changed while the request was open', async () => {
+    const { created } = await interrupt(async () => undefined);
+
+    // The control: the gate refuses superseded runs, not slow ones.
+    expect(created).toHaveBeenCalledOnce();
+  });
+
+  it('still delivers the official reminder when only the household rules are unavailable', async () => {
+    await writeSettings({ ...started, visibleWasteTypes: [...started.visibleWasteTypes] });
+
+    const { gateway, getHouseholdRules } = createStubGateway(
+      restoredSchedule({ events: [curbsideEvent('2026-03-10')] }),
+    );
+
+    getHouseholdRules.mockResolvedValue({
+      ok: false,
+      failure: { kind: 'network', operation: 'getHouseholdRules' },
+    });
+
+    const created = watchNotifications();
+
+    await showReminder({ gateway, now: () => NOW });
+
+    // Revalidation compares settings, not sources: an unreadable optional extra is not a changed setting.
+    expect(created).toHaveBeenCalledOnce();
+  });
+});
+
+/**
+ * One notification per morning, whatever happens to the settings in between.
+ *
+ * Written because a browser experiment was ambiguous: a reminder was delivered, the household bins were
+ * switched off and on again, and a second notification appeared for the same morning — but the dedupe
+ * record had also been deleted between the two runs, so the experiment could not say which caused it.
+ * Repeated with the record left alone, nothing was delivered. These pin that down in the code, so the
+ * answer does not depend on remembering how a probe was set up.
+ *
+ * The distinction matters: revalidating settings before notifying (above) must not become a way of
+ * *re-arming* a morning that has already been announced.
+ */
+describe('one notification per morning across settings changes', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  const HOUSEHOLD: HouseholdSetup = { ...SELECTION, weekday: 2 };
+
+  const RULES: HouseholdRulesSummary = {
+    providerId: OFFICIAL_PROVIDER_ID,
+    cityId: 'koblenz',
+    coverage: { from: '2026-01-01', to: '2026-12-26' },
+    parity: { even: 'bio', odd: 'residual' },
+    replacements: [],
+    source: {
+      name: 'Kommunaler Servicebetrieb',
+      attribution: 'Kommunaler Servicebetrieb, Koblenz',
+      landingPageUrl: 'https://servicebetrieb.koblenz.de/abfallwirtschaft/entsorgungstermine/',
+      replacementsSourceUrl: 'https://servicebetrieb.koblenz.de/downloads/x.jpg',
+      parityRuleSourceUrl: 'https://servicebetrieb.koblenz.de/abfallwirtschaft/entsorgungstermine/',
+      timeZone: 'Europe/Berlin',
+    },
+    revision: '2026.1',
+    checkedAt: '2026-09-23T08:00:00.000Z',
+    announcementsReviewedThrough: '2026-09-23',
+    checks: { table: 'verified', parityRule: 'verified', tableLink: 'verified' },
+    verification: 'verified',
+  };
+
+  const settingsWith = async (household: HouseholdSetup | null) => {
+    await writeSettings({
+      ...defaultSettings,
+      selection: SELECTION,
+      visibleWasteTypes: ['paper', 'bio', 'residual'],
+      household,
+    });
+  };
+
+  /** One complete run, with the rules answering immediately. Storage is never reset between runs. */
+  const run = async (created: ReturnType<typeof watchNotifications>) => {
+    const { gateway, getHouseholdRules } = createStubGateway(null);
+
+    getHouseholdRules.mockResolvedValue({ ok: true, data: RULES });
+
+    await showReminder({ gateway, now: () => NOW });
+
+    return created.mock.calls.length;
+  };
+
+  it('does not announce the same morning again after the bins are switched off and back on', async () => {
+    const created = watchNotifications();
+
+    await settingsWith(HOUSEHOLD);
+    expect(await run(created)).toBe(1);
+
+    // Switched off, then on again, exactly as somebody would in Settings. The dedupe record is untouched.
+    await settingsWith(null);
+    expect(await run(created)).toBe(1);
+
+    await settingsWith(HOUSEHOLD);
+    expect(await run(created)).toBe(1);
+  });
+
+  it('does not announce it again after the weekday is changed and changed back', async () => {
+    const created = watchNotifications();
+
+    await settingsWith(HOUSEHOLD);
+    expect(await run(created)).toBe(1);
+
+    await settingsWith({ ...HOUSEHOLD, weekday: 5 });
+    await run(created);
+
+    await settingsWith(HOUSEHOLD);
+
+    // The morning was already announced, and coming back to the same weekday does not re-arm it.
+    expect(await run(created)).toBe(1);
+  });
+
+  it('announces it again only once the record of that morning is gone', async () => {
+    const created = watchNotifications();
+
+    await settingsWith(HOUSEHOLD);
+    expect(await run(created)).toBe(1);
+    expect(await run(created)).toBe(1);
+
+    // What the browser probe actually did between its two deliveries, made explicit.
+    await browser.storage.local.remove('last-reminder');
+
+    expect(await run(created)).toBe(2);
   });
 });

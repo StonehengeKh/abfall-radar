@@ -9,7 +9,7 @@ import type {
 } from '@/src/hooks/use-catalogue';
 import { PresentationProvider } from '@/src/i18n/copy';
 import type { ServiceAreaSummary } from '@/src/messaging/contract';
-import type { AppSettings } from '@/src/storage/settings';
+import type { AppSettings, SettingsDraft } from '@/src/storage/settings';
 import { defaultSettings } from '@/src/storage/settings';
 import {
   invalidateSelectionIfMatches,
@@ -110,6 +110,8 @@ interface RenderOptions {
   readonly onSave?: Parameters<typeof SettingsView>[0]['onSave'];
   /** The stored selection's city as the popup derived it; `null` while it is not known. */
   readonly initialCityId?: string | null;
+  /** The value Settings opens on, for the cases where the stored draft is what is under test. */
+  readonly initialSettings?: SettingsDraft;
 }
 
 /**
@@ -125,6 +127,7 @@ const renderView = ({
   areaState = loadedFor(OFFICIAL_PROVIDER_ID, MIXED_AREAS),
   onSave,
   initialCityId = OFFICIAL_CITY_ID,
+  initialSettings = STORED,
 }: RenderOptions = {}) => {
   const onCancel = vi.fn();
   const onRequestAreas = vi.fn();
@@ -141,7 +144,7 @@ const renderView = ({
       cities={CITIES}
       catalogue={CATALOGUE}
       areaStateFor={() => state}
-      initialSettings={STORED}
+      initialSettings={initialSettings}
       initialCityId={initialCityId}
       onRetryCities={vi.fn()}
       onRetryCatalogue={vi.fn()}
@@ -306,6 +309,7 @@ describe('Save persists the whole value in one operation', () => {
       // The evidence names the area it was read for, so a save can never be made on another area's calendar.
       evidence: evidenceForArea(OTHER_AREA),
       expectedSelection: OFFICIAL_SELECTION,
+      expectedHousehold: null,
     });
 
     expect(await readSettings()).toEqual({
@@ -447,6 +451,7 @@ describe('the provider draft', () => {
       evidence: undefined,
       // The premise the draft was built on: the selection stored when Settings opened.
       expectedSelection: OFFICIAL_SELECTION,
+      expectedHousehold: null,
     });
     expect((await readSettings()).selection).toBeNull();
   });
@@ -483,6 +488,7 @@ describe('the provider draft', () => {
       // The evidence names the area it was read for, so a save can never be made on another area's calendar.
       evidence: evidenceForArea(OTHER_AREA),
       expectedSelection: OFFICIAL_SELECTION,
+      expectedHousehold: null,
     });
   });
 });
@@ -538,6 +544,7 @@ describe('an unavailable area in Settings', () => {
 
     const result = await persistSettings({
       expectedSelection: OFFICIAL_SELECTION,
+      expectedHousehold: null,
       settings: {
         ...STORED,
         selection: { providerId: OFFICIAL_PROVIDER_ID, serviceAreaId: UNAVAILABLE_AREA_ID },
@@ -554,6 +561,7 @@ describe('an unavailable area in Settings', () => {
 
     const result = await persistSettings({
       expectedSelection: OFFICIAL_SELECTION,
+      expectedHousehold: null,
       settings: {
         ...STORED,
         selection: { providerId: OFFICIAL_PROVIDER_ID, serviceAreaId: 'never-verified' },
@@ -954,5 +962,187 @@ describe('a stale draft refused by the owner', () => {
     // Neither the selection it would have restored nor the preference it edited.
     expect(stored.selection).toBeNull();
     expect(stored.visibleWasteTypes).toEqual(['paper']);
+  });
+});
+
+/**
+ * The household bins are opt-in, and **enabling is not confirming**.
+ *
+ * The operator publishes no weekday for an address, so there is none this extension may assume. A
+ * preselected Monday that somebody saves without looking would be the extension recording a guess as
+ * though the household had stated it — and then showing, and reminding on, dates for a route nobody
+ * checked. These tests run through the real Settings surface and the real repository.
+ */
+describe('confirming a household weekday', () => {
+  /** What the one save actually carried, read from the call the surface made. */
+  const householdOf = (save: Parameters<typeof SettingsView>[0]['onSave']) =>
+    (save as ReturnType<typeof vi.fn>).mock.calls[0]?.[0]?.settings?.household ?? null;
+
+  it('persists no household setup when Save follows Enable directly', async () => {
+    const user = userEvent.setup();
+
+    await writeSettings(STORED);
+
+    const { save } = renderView();
+
+    await user.click(screen.getByTestId('household-enable'));
+    await user.click(saveButton());
+
+    // The exact sequence the review reproduced: Enable, then Save, touching nothing between.
+    expect(householdOf(save)).toBeNull();
+    expect((await readSettings()).household).toBeNull();
+  });
+
+  it('offers no weekday to confirm until one is chosen', async () => {
+    const user = userEvent.setup();
+
+    renderView();
+    await user.click(screen.getByTestId('household-enable'));
+
+    // The field opens on a prompt, and the prompt is not a selectable weekday.
+    expect(screen.getByTestId('household-weekday')).toHaveValue('');
+    expect(screen.getByTestId('household-confirm')).toBeDisabled();
+  });
+
+  it('writes the weekday that was chosen, and only after Confirm', async () => {
+    const user = userEvent.setup();
+
+    await writeSettings(STORED);
+
+    const { save } = renderView();
+
+    await user.click(screen.getByTestId('household-enable'));
+    await user.selectOptions(screen.getByTestId('household-weekday'), '4');
+
+    // Chosen but not confirmed: still nothing in the draft.
+    expect(screen.getByTestId('household-confirm')).toBeEnabled();
+
+    await user.click(screen.getByTestId('household-confirm'));
+    await user.click(saveButton());
+
+    expect(householdOf(save)).toEqual({ ...OFFICIAL_SELECTION, weekday: 4 });
+    expect((await readSettings()).household).toEqual({ ...OFFICIAL_SELECTION, weekday: 4 });
+  });
+
+  it('moves focus to the chooser when Enable is replaced by it', async () => {
+    const user = userEvent.setup();
+
+    renderView();
+    await user.click(screen.getByTestId('household-enable'));
+
+    // Enable unmounts itself; without this, focus would fall to `<body>` and the keyboard journey would
+    // restart at the top of the popup.
+    expect(screen.getByTestId('household-weekday')).toHaveFocus();
+  });
+
+  it('moves focus to Change when Confirm is activated from the keyboard', async () => {
+    const user = userEvent.setup();
+
+    renderView();
+
+    await user.click(screen.getByTestId('household-enable'));
+    await user.selectOptions(screen.getByTestId('household-weekday'), '4');
+
+    // Reached and activated the way a keyboard user does, because that is who the defect stranded.
+    await user.tab();
+    expect(screen.getByTestId('household-confirm')).toHaveFocus();
+
+    await user.keyboard('{Enter}');
+
+    /*
+     * Confirm unmounts itself. Without a destination, focus fell to `<body>` and continuing to Save meant
+     * restarting traversal at the top of the popup — the original Enable defect, moved one step along.
+     */
+    expect(document.body).not.toHaveFocus();
+    expect(screen.getByTestId('household-change')).toHaveFocus();
+  });
+
+  it('continues forward from Change in the order the controls are read', async () => {
+    const user = userEvent.setup();
+
+    renderView();
+
+    await user.click(screen.getByTestId('household-enable'));
+    await user.selectOptions(screen.getByTestId('household-weekday'), '4');
+    await user.click(screen.getByTestId('household-confirm'));
+
+    // Landing on Change is only useful if going forward from it continues down the surface.
+    expect(screen.getByTestId('household-change')).toHaveFocus();
+
+    await user.tab();
+    expect(screen.getByTestId('household-disable')).toHaveFocus();
+
+    /*
+     * Out of the section and into the next one, which is the waste-type filter; Save is the last control
+     * on the surface, past those toggles. Nothing is skipped and nothing is visited twice.
+     */
+    await user.tab();
+    expect(document.activeElement).toHaveTextContent('Restabfall');
+  });
+
+  it('moves focus to Enable when Disable is replaced by it', async () => {
+    const user = userEvent.setup();
+
+    const stored = { ...STORED, household: { ...OFFICIAL_SELECTION, weekday: 2 as const } };
+
+    await writeSettings(stored);
+
+    renderView({ initialSettings: stored });
+
+    await user.click(screen.getByTestId('household-disable'));
+
+    // The same transition in the other direction; Disable unmounts itself just as Confirm does.
+    expect(screen.getByTestId('household-enable')).toHaveFocus();
+  });
+
+  it('keeps a confirmed weekday through an unrelated edit', async () => {
+    const user = userEvent.setup();
+
+    const stored = { ...STORED, household: { ...OFFICIAL_SELECTION, weekday: 2 as const } };
+
+    await writeSettings(stored);
+
+    const { save } = renderView({ initialSettings: stored });
+
+    // Shown as confirmed rather than as a question, and an edit elsewhere leaves it alone.
+    expect(screen.getByTestId('household-confirmed')).toHaveTextContent('Dienstag');
+    await user.selectOptions(screen.getByRole('combobox', { name: /Uhrzeit/ }), '20:00');
+    await user.click(saveButton());
+
+    expect(householdOf(save)).toEqual({ ...OFFICIAL_SELECTION, weekday: 2 });
+  });
+
+  it('forgets the weekday when the bins are switched off', async () => {
+    const user = userEvent.setup();
+
+    const stored = { ...STORED, household: { ...OFFICIAL_SELECTION, weekday: 2 as const } };
+
+    await writeSettings(stored);
+
+    const { save } = renderView({ initialSettings: stored });
+
+    await user.click(screen.getByTestId('household-disable'));
+    await user.click(saveButton());
+
+    expect(householdOf(save)).toBeNull();
+    expect((await readSettings()).household).toBeNull();
+  });
+
+  it('asks again rather than carrying a weekday to another district', async () => {
+    // A setup stored for one district is not this district's setting, so the section reads as off.
+    const stored = {
+      ...STORED,
+      household: {
+        providerId: OFFICIAL_PROVIDER_ID,
+        serviceAreaId: 'koblenz-elsewhere',
+        weekday: 2 as const,
+      },
+    };
+
+    await writeSettings(stored);
+    renderView({ initialSettings: stored });
+
+    expect(screen.getByTestId('household-enable')).toBeInTheDocument();
+    expect(screen.queryByTestId('household-confirmed')).not.toBeInTheDocument();
   });
 });

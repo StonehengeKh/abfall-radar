@@ -1,12 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { CollectionEventListResponseSchema } from './collection-events';
-import { ServiceAreaListResponseSchema } from './service-areas';
-import { isUsableTimeZone, TimeZoneSchema } from './time-zone';
 import {
   COLLECTION_EVENTS_BODY,
   mutableCopy,
   SERVICE_AREA_LIST_BODY,
 } from '../test/response-fixtures';
+import { CollectionEventListResponseSchema } from './collection-events';
+import { ServiceAreaListResponseSchema } from './service-areas';
+import { isUsableTimeZone, TimeZoneSchema } from './time-zone';
 
 /**
  * A time zone is validated for **usability**, not for being a nonempty string.

@@ -22,6 +22,7 @@ export const OPERATIONS = [
   'listProviders',
   'listServiceAreas',
   'listCollectionEvents',
+  'getHouseholdRules',
 ] as const;
 
 export type Operation = (typeof OPERATIONS)[number];

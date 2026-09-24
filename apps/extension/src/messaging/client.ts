@@ -7,6 +7,8 @@ import {
   type CollectionEventsPayload,
   type GatewayFailure,
   type GatewayRequest,
+  HouseholdRulesResponseSchema,
+  type HouseholdRulesSummary,
   InvalidatedScheduleResponseSchema,
   type ProviderSummary,
   ProvidersResponseSchema,
@@ -137,6 +139,13 @@ export interface MessagingClient {
   /** The city catalogue, with the providers behind each city. */
   listCities(): Promise<MessagingResult<CitySummary[]>>;
   listProviders(): Promise<MessagingResult<ProviderSummary[]>>;
+  /**
+   * The municipal rules for the bins the operator publishes no calendar for.
+   *
+   * Per provider, never per household: the weekday that turns these rules into dates lives in this
+   * extension's own settings and never leaves it.
+   */
+  getHouseholdRules(providerId: string): Promise<MessagingResult<HouseholdRulesSummary>>;
   listServiceAreas(providerId: string): Promise<MessagingResult<ServiceAreaSummary[]>>;
   /**
    * The live read, which answers with the **discriminated** collection-events payload.
@@ -187,11 +196,15 @@ export interface MessagingClient {
   saveSettings(input: {
     /** The selection stored when the draft was created, so a stale draft is refused rather than applied. */
     readonly expectedSelection: ServiceAreaSelection | null;
+    /** The household setup stored when the draft opened, for the concurrency check. */
+    readonly expectedHousehold: AppSettings['household'];
     readonly selection: ServiceAreaSelection | null;
     readonly remindersEnabled: boolean;
     readonly reminderDaysBefore: number;
     readonly reminderTime: string;
     readonly visibleWasteTypes: readonly AppSettings['visibleWasteTypes'][number][];
+    /** The household weekday for the calculated bins, or `null` when they are off. */
+    readonly household: AppSettings['household'];
     readonly evidence?: ServiceAreaCapabilityEvidence | undefined;
   }): Promise<SettingsResult<SettingsWritePayload>>;
   /**
@@ -213,6 +226,18 @@ export const createMessagingClient = (sendImpl: SendMessage = defaultSend): Mess
       send: sendImpl,
       parse: (reply) => {
         const parsed = CitiesResponseSchema.safeParse(reply);
+
+        return parsed.success ? parsed.data : undefined;
+      },
+    });
+  },
+
+  async getHouseholdRules(providerId) {
+    return send({
+      request: { kind: 'get_household_rules', providerId },
+      send: sendImpl,
+      parse: (reply) => {
+        const parsed = HouseholdRulesResponseSchema.safeParse(reply);
 
         return parsed.success ? parsed.data : undefined;
       },

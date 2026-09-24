@@ -1,10 +1,11 @@
-import type { Locale } from '@abfall-radar/schedule-format';
+import { formatCalendarDate, formatInstant, type Locale } from '@abfall-radar/schedule-format';
 import { AlertTriangle, Loader2, RotateCcw } from 'lucide-react';
 import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { DashboardView } from '@/src/features/dashboard/dashboard-view';
 import { NeedsSelectionView } from '@/src/features/onboarding/needs-selection-view';
 import { SettingsView } from '@/src/features/settings/settings-view';
 import { useCatalogue, verifyProvider } from '@/src/hooks/use-catalogue';
+import { calculatedToShow, useHousehold } from '@/src/hooks/use-household';
 import { useSchedule } from '@/src/hooks/use-schedule';
 import { useSettings } from '@/src/hooks/use-settings';
 import { useWithdrawal } from '@/src/hooks/use-withdrawal';
@@ -69,7 +70,7 @@ const StateScreen = ({ children }: { readonly children: ReactNode }) => (
 );
 
 function Popup({ settingsState }: { readonly settingsState: ReturnType<typeof useSettings> }) {
-  const { messages } = useCopy();
+  const { locale, messages } = useCopy();
   const [screen, setScreen] = useState<'dashboard' | 'settings'>('dashboard');
   const { clearSelectionIfUnchanged, saveSelection, saveSettings, settings, status } =
     settingsState;
@@ -221,6 +222,73 @@ function Popup({ settingsState }: { readonly settingsState: ReturnType<typeof us
     providerVerification: verification,
     onAreaUnavailable: withdrawal.begin,
   });
+
+  /**
+   * The optional household bins, beside the schedule rather than inside it: an opt-in extra whose source
+   * failing must leave every state of the official schedule exactly as it is.
+   */
+  const householdRange = view.kind === 'live' || view.kind === 'cached' ? view.displayRange : null;
+  const household = useHousehold({
+    household: settings.household,
+    selection: settings.selection,
+    range: householdRange,
+  });
+
+  /**
+   * What the popup says about the calculated bins, in one line beside the schedule.
+   *
+   * Ordered by how much it changes what a person should do: a transcription the operator has moved on
+   * from comes first, because those dates are withheld entirely; then a source that could not be checked;
+   * then where the published rules stop. Silent when there is nothing to qualify.
+   */
+  const householdNotice = ((): string | null => {
+    if (household.status === 'unavailable') {
+      return household.retryable ? messages.household.unavailable : messages.household.notOffered;
+    }
+
+    if (household.status !== 'ready') {
+      return null;
+    }
+
+    if (household.rules.verification === 'changed') {
+      return messages.household.changed;
+    }
+
+    if (household.rules.verification === 'unverified') {
+      return messages.household.unverified;
+    }
+
+    return household.schedule.limitedCoverage
+      ? messages.household.limitedCoverage(formatCalendarDate(locale, household.rules.coverage.to))
+      : null;
+  })();
+
+  /**
+   * What the calculated dates are standing on, said in the state where everything worked too.
+   *
+   * Two independent facts, kept apart because they are established in two different ways and can be true
+   * of each other's opposite:
+   *
+   * - the **automatic** check of the published documents, and the instant it ran;
+   * - the date a **person** last read the operator's announcements, which nothing automatic covers and
+   *   which is the one that can silently invalidate a row.
+   *
+   * Previously only the failing states said anything, so a working household schedule showed no
+   * qualification at all — the one reading where somebody is most likely to act on a date was the one
+   * reading that never said when it was last checked, or how far the manual review had got. The failure
+   * wording stays in the notice above; these are the facts, in both cases.
+   */
+  const householdProvenance =
+    household.status !== 'ready'
+      ? []
+      : [
+          messages.household.sourceChecked[household.rules.verification](
+            `${formatInstant(locale, household.rules.checkedAt)} UTC`,
+          ),
+          messages.household.announcementsReviewed(
+            formatCalendarDate(locale, household.rules.announcementsReviewedThrough),
+          ),
+        ];
 
   /**
    * The stored selection's city, derived from successful reads only — never from a display name.
@@ -544,6 +612,13 @@ function Popup({ settingsState }: { readonly settingsState: ReturnType<typeof us
   return (
     <DashboardView
       view={view}
+      householdNotice={householdNotice}
+      householdProvenance={householdProvenance}
+      /*
+       * Withheld unless the rules were read and still match what was transcribed. `changed` means the
+       * operator has published something else, so these dates would be plausible and wrong.
+       */
+      household={calculatedToShow(household)}
       visibleWasteTypes={settings.visibleWasteTypes}
       onOpenSettings={() => {
         setScreen('settings');

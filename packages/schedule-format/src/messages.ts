@@ -1,4 +1,5 @@
-import type { WasteType } from '@abfall-radar/domain';
+import type { RuleVerification, WasteType } from '@abfall-radar/domain';
+import { withSentencePeriod } from './format';
 import type { Locale } from './locale';
 
 /**
@@ -36,6 +37,38 @@ export interface ScheduleMessages {
     readonly publishedWasteTypes: string;
     readonly nextCollection: string;
     readonly details: string;
+  };
+  /**
+   * The two bins the operator publishes no calendar for, calculated from its rules.
+   *
+   * Shared because both applications must say the same thing about them, and because the distinction
+   * they carry — calculated from a rule, not retrieved from a calendar — is the one a person has to be
+   * able to see wherever the collection appears.
+   */
+  readonly household: {
+    readonly calculated: string;
+    readonly calculatedHint: string;
+    readonly movedFrom: (date: string) => string;
+    /**
+     * The **automatic** check of the operator's published documents, by its result, stating when it ran.
+     *
+     * Result and instant in one sentence because neither means much alone: "checked on Tuesday" does not
+     * say what was found, and "unchanged" does not say how long ago. Keyed by the verification state, so
+     * a new state cannot be added without deciding what every surface says about it.
+     *
+     * Shared, and kept strictly apart from `announcementsReviewed` below, because the two are
+     * established in completely different ways and can each be true of the other's opposite.
+     */
+    readonly sourceChecked: Record<RuleVerification, (instant: string) => string>;
+    /**
+     * The **manual** half: how far a person has read the operator's later announcements.
+     *
+     * Nothing automatic covers it. The operator publishes per-holiday notices that restate, and could in
+     * principle amend, a row of the annual table; they are free prose, and no check here reads them. So
+     * the wording names both facts — the date the reading reached, and that later notices are not
+     * checked automatically — because the date alone reads like a second automatic check.
+     */
+    readonly announcementsReviewed: (date: string) => string;
   };
   readonly schedule: {
     readonly today: string;
@@ -93,6 +126,22 @@ const de: ScheduleMessages = {
     nextCollection: 'Nächste Abfuhr',
     details: 'Quelle und Details',
   },
+  household: {
+    calculated: 'Berechnet',
+    calculatedHint:
+      'Aus den Regeln des Betriebs und deinem bestätigten Abfuhrtag berechnet, nicht aus dem digitalen Kalender.',
+    movedFrom: (date) => `Verlegt vom ${date}`,
+    sourceChecked: {
+      verified: (instant) =>
+        `Automatische Quellprüfung am ${instant}: die veröffentlichten Unterlagen sind unverändert.`,
+      unverified: (instant) =>
+        `Automatische Quellprüfung am ${instant}: die veröffentlichten Unterlagen konnten nicht geprüft werden.`,
+      changed: (instant) =>
+        `Automatische Quellprüfung am ${instant}: die veröffentlichten Unterlagen haben sich geändert.`,
+    },
+    announcementsReviewed: (date) =>
+      `Mitteilungen des Betriebs von Hand gelesen bis ${withSentencePeriod(date)} Spätere Mitteilungen werden nicht automatisch geprüft.`,
+  },
   schedule: {
     today: 'Heute',
     inProgress: 'Abholung läuft',
@@ -132,6 +181,22 @@ const en: ScheduleMessages = {
     publishedWasteTypes: 'Published waste types',
     nextCollection: 'Next collection',
     details: 'Source and details',
+  },
+  household: {
+    calculated: 'Calculated',
+    calculatedHint:
+      'Calculated from the operator’s rules and your confirmed collection weekday, not from the digital calendar.',
+    movedFrom: (date) => `Moved from ${date}`,
+    sourceChecked: {
+      verified: (instant) =>
+        `Automatic source check on ${instant}: the published documents are unchanged.`,
+      unverified: (instant) =>
+        `Automatic source check on ${instant}: the published documents could not be checked.`,
+      changed: (instant) =>
+        `Automatic source check on ${instant}: the published documents have changed.`,
+    },
+    announcementsReviewed: (date) =>
+      `Operator announcements read by hand through ${withSentencePeriod(date)} Later notices are not checked automatically.`,
   },
   schedule: {
     today: 'Today',
@@ -173,6 +238,22 @@ const uk: ScheduleMessages = {
     nextCollection: 'Найближче вивезення',
     details: 'Джерело та деталі',
   },
+  household: {
+    calculated: 'Обчислено',
+    calculatedHint:
+      'Обчислено за правилами оператора та підтвердженим днем вивезення, а не з цифрового календаря.',
+    movedFrom: (date) => `Перенесено з ${date}`,
+    sourceChecked: {
+      verified: (instant) =>
+        `Автоматична перевірка джерел ${instant}: опубліковані документи без змін.`,
+      unverified: (instant) =>
+        `Автоматична перевірка джерел ${instant}: опубліковані документи перевірити не вдалося.`,
+      changed: (instant) =>
+        `Автоматична перевірка джерел ${instant}: опубліковані документи змінено.`,
+    },
+    announcementsReviewed: (date) =>
+      `Повідомлення оператора прочитано вручну до ${withSentencePeriod(date)} Пізніші повідомлення автоматично не перевіряються.`,
+  },
   schedule: {
     today: 'Сьогодні',
     inProgress: 'Вивезення триває',
@@ -212,6 +293,22 @@ const ru: ScheduleMessages = {
     publishedWasteTypes: 'Опубликованные типы отходов',
     nextCollection: 'Ближайший вывоз',
     details: 'Источник и подробности',
+  },
+  household: {
+    calculated: 'Рассчитано',
+    calculatedHint:
+      'Рассчитано по правилам оператора и подтверждённому дню вывоза, а не из цифрового календаря.',
+    movedFrom: (date) => `Перенесено с ${date}`,
+    sourceChecked: {
+      verified: (instant) =>
+        `Автоматическая проверка источников ${instant}: опубликованные документы без изменений.`,
+      unverified: (instant) =>
+        `Автоматическая проверка источников ${instant}: опубликованные документы проверить не удалось.`,
+      changed: (instant) =>
+        `Автоматическая проверка источников ${instant}: опубликованные документы изменились.`,
+    },
+    announcementsReviewed: (date) =>
+      `Сообщения оператора прочитаны вручную до ${withSentencePeriod(date)} Более поздние сообщения автоматически не проверяются.`,
   },
   schedule: {
     today: 'Сегодня',

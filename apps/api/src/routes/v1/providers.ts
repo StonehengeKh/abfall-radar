@@ -6,11 +6,13 @@ import {
   ValidationProblemSchema,
 } from '../../http/problem-details';
 import {
+  findHouseholdRules,
   findProviderEntry,
   listCities,
   listProviders,
   listServiceAreas,
 } from '../../providers/provider-catalogue';
+import { HouseholdRulesResponseSchema } from './household-rules.schemas';
 import {
   CityListResponseSchema,
   ProviderIdParamsSchema,
@@ -89,6 +91,48 @@ export const providerRoutes: FastifyPluginAsyncZod = async (app) => {
       }
 
       return { data: await listServiceAreas(entry) };
+    },
+  );
+
+  app.get(
+    '/providers/:providerId/household-rules',
+    {
+      schema: {
+        operationId: 'getProviderHouseholdRules',
+        summary:
+          'Get the municipal rules for the household bins a provider publishes no calendar for',
+        description: [
+          'Returns the rules a client calculates Bioabfall and Restabfall collections from: which bin an even and an odd ISO calendar week carries, the published table of holiday date replacements, and the period those replacements are complete for.',
+          'This endpoint serves **rules, not dates**. The operator publishes no calendar for these two bins and no per-address weekday — the weekday comes from the household and stays on the client, so nothing here identifies an address.',
+          "The rules are a maintained transcription of the operator's own publications, one of which is an image. `verification` reports whether that published document still matches the digest recorded when it was transcribed, so a client can refuse to present dates from a transcription the operator has moved on from. It is not evidence of a rule being wrong when it says `unverified`: that only means the document could not be retrieved.",
+          'A provider that publishes an official calendar for these bins, or for which no rules have been transcribed, answers `404`. That is a statement that this API cannot calculate them, never a reason for a client to invent them.',
+        ].join('\n\n'),
+        tags: ['Providers'],
+        params: ProviderIdParamsSchema,
+        response: {
+          200: HouseholdRulesResponseSchema,
+          400: ValidationProblemSchema,
+          404: ProviderNotFoundProblemSchema,
+          500: ProblemDetailsSchema,
+        },
+      },
+    },
+    async (request) => {
+      const entry = findProviderEntry(app.providerCatalogue, request.params.providerId);
+
+      if (entry === undefined) {
+        throw ApiProblem.providerNotFound();
+      }
+
+      const rules = await findHouseholdRules(entry);
+
+      if (rules === undefined) {
+        // No transcription exists for this provider. Saying so is the whole point: the alternative is a
+        // client applying another municipality's parity rule to this one's bins.
+        throw ApiProblem.providerNotFound();
+      }
+
+      return { data: rules };
     },
   );
 };

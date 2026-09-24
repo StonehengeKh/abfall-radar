@@ -9,6 +9,7 @@ import {
   isRelativeDay,
 } from '@abfall-radar/schedule-format';
 import { WasteIcon } from '../waste-icon';
+import { CalculatedBadge } from './calculated-badge';
 import type { ScheduleCopy } from './types';
 
 /**
@@ -96,12 +97,26 @@ export const EventRow = ({
           The title and a drop-off's details as one content group. `contents` keeps them one element in
           the document while letting the grid place the title level with the icon and the details under it.
         */}
+        {/*
+          `wrap-anywhere` rather than `break-words` on the title, for the same reason the badge carries
+          it: `break-word` never lowers an element's min-content width, so a long single-word title —
+          Russian `Смешанные отходы` measures 136 px against a 102 px column at 320 px with 32 px root
+          text — kept forcing the card wider than the window. `anywhere` lets it wrap inside the word as
+          a last resort, and only as a last resort: ordinary break opportunities are still preferred, so
+          nothing changes at the widths this is normally read at.
+        */}
         <div className="contents">
           <span
-            className="col-start-2 row-start-2 min-w-0 break-words font-medium text-ar-text @min-[14rem]:col-start-3 @min-[14rem]:row-start-1"
+            className="col-start-2 row-start-2 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 font-medium text-ar-text wrap-anywhere @min-[14rem]:col-start-3 @min-[14rem]:row-start-1"
             data-testid="event-row-title"
           >
             {messages.waste[event.type]}
+            {/*
+              A collection the operator publishes no calendar for, worked out from its rules and a
+              weekday somebody confirmed. Marked wherever it appears, because the difference between a
+              published date and a calculated one is invisible once both are rows in the same list.
+            */}
+            {event.source === 'user_rule' ? <CalculatedBadge messages={messages} /> : null}
           </span>
 
           {event.collectionMode === 'mobile_drop_off' ? (

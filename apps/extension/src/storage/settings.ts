@@ -18,10 +18,13 @@ import { z } from 'zod';
  * - **3** — adds the interface language and the appearance. Everything version 2 stored is carried across
  *   unchanged, including the selection's shape; see `./settings-migration`.
  */
-export const SETTINGS_SCHEMA_VERSION = 3;
+export const SETTINGS_SCHEMA_VERSION = 4;
 
 /** The version before this one, still read so an existing installation migrates rather than resets. */
-export const PREVIOUS_SETTINGS_SCHEMA_VERSION = 2;
+export const PREVIOUS_SETTINGS_SCHEMA_VERSION = 3;
+
+/** The version before that, still read for the same reason: an upgrade must never reset a selection. */
+export const SETTINGS_SCHEMA_VERSION_2 = 2;
 
 /** The interface languages, from the same list the website offers. */
 export const LocaleSchema = z.enum(SUPPORTED_LOCALES);
@@ -47,6 +50,33 @@ export const ServiceAreaSelectionSchema = z.strictObject({
 
 export type ServiceAreaSelection = z.infer<typeof ServiceAreaSelectionSchema>;
 
+/**
+ * The household's own setting for the two bins the operator publishes no calendar for.
+ *
+ * The weekday the operator gave this household, stored **with the district it belongs to**. A weekday is
+ * a fact about one address on one route, so a setup that does not name the current selection is ignored
+ * rather than reused: changing district switches the calculated bins off until somebody confirms a
+ * weekday for the new one, instead of producing confident dates for a route nobody checked.
+ *
+ * `null` is the ordinary state. Nothing is calculated until a person asks for it.
+ */
+export const HouseholdSetupSchema = z.strictObject({
+  providerId: z.string().min(1),
+  serviceAreaId: z.string().min(1),
+  /** ISO weekday numbering: 1 is Monday, 7 is Sunday, as every other calculation here counts. */
+  weekday: z.union([
+    z.literal(1),
+    z.literal(2),
+    z.literal(3),
+    z.literal(4),
+    z.literal(5),
+    z.literal(6),
+    z.literal(7),
+  ]),
+});
+
+export type HouseholdSetup = z.infer<typeof HouseholdSetupSchema>;
+
 /** Persisted schemas are strict: an unexpected member is a defect, not a newer contract. */
 export const AppSettingsSchema = z.strictObject({
   version: z.literal(SETTINGS_SCHEMA_VERSION),
@@ -58,6 +88,7 @@ export const AppSettingsSchema = z.strictObject({
   visibleWasteTypes: z.array(WasteTypeSchema).min(1),
   locale: LocaleSchema,
   appearance: AppearanceSchema,
+  household: HouseholdSetupSchema.nullable(),
 });
 
 export type AppSettings = z.infer<typeof AppSettingsSchema>;
@@ -81,7 +112,7 @@ export type SettingsDraft = Omit<AppSettings, keyof PresentationPreferences>;
  * so it is either exactly this shape or it is not a version-2 record — and then it is not migrated.
  */
 export const SettingsV2Schema = z.strictObject({
-  version: z.literal(PREVIOUS_SETTINGS_SCHEMA_VERSION),
+  version: z.literal(SETTINGS_SCHEMA_VERSION_2),
   selection: ServiceAreaSelectionSchema.nullable(),
   remindersEnabled: z.boolean(),
   reminderDaysBefore: z.number().int().min(0).max(7),
@@ -90,6 +121,25 @@ export const SettingsV2Schema = z.strictObject({
 });
 
 export type SettingsV2 = z.infer<typeof SettingsV2Schema>;
+
+/**
+ * The version-3 shape exactly as that build wrote it, read for migration only.
+ *
+ * Strict for the same reason version 2 is: a version-3 record is something a build of this extension
+ * wrote, so it is either exactly this shape or it is not a version-3 record.
+ */
+export const SettingsV3Schema = z.strictObject({
+  version: z.literal(PREVIOUS_SETTINGS_SCHEMA_VERSION),
+  selection: ServiceAreaSelectionSchema.nullable(),
+  remindersEnabled: z.boolean(),
+  reminderDaysBefore: z.number().int().min(0).max(7),
+  reminderTime: ReminderTimeSchema,
+  visibleWasteTypes: z.array(WasteTypeSchema).min(1),
+  locale: LocaleSchema,
+  appearance: AppearanceSchema,
+});
+
+export type SettingsV3 = z.infer<typeof SettingsV3Schema>;
 
 /** What a migration adds for the preferences an earlier version had no field for. */
 export const DEFAULT_PRESENTATION: PresentationPreferences = {
@@ -109,6 +159,8 @@ export const defaultSettings: AppSettings = {
   reminderTime: '18:00',
   visibleWasteTypes: ['residual', 'bio', 'paper', 'yellow_bag', 'green_waste', 'small_electronics'],
   ...DEFAULT_PRESENTATION,
+  // Off until somebody confirms a weekday: nothing is calculated on a person's behalf.
+  household: null,
 };
 
 /**

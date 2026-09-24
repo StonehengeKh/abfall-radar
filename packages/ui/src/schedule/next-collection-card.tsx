@@ -11,6 +11,7 @@ import {
   isRelativeDay,
 } from '@abfall-radar/schedule-format';
 import { WasteIcon } from '../waste-icon';
+import { CalculatedBadge } from './calculated-badge';
 import type { ScheduleCopy, ScheduleView } from './types';
 
 /**
@@ -108,11 +109,13 @@ export const NextCollectionCard = ({
         >
           {messages.provenance.nextCollection}
         </h3>
-        <div className="flex min-w-0 items-center gap-2">
+        <div className="flex min-w-0 flex-wrap items-center gap-2">
           <WasteIcon type={event.type} />
-          <span className="min-w-0 break-words text-lg font-semibold text-ar-text">
+          <span className="min-w-0 text-lg font-semibold text-ar-text wrap-anywhere">
             {messages.waste[event.type]}
           </span>
+          {/* The same mark the rows carry: featured or not, a calculated collection says so. */}
+          {event.source === 'user_rule' ? <CalculatedBadge messages={messages} /> : null}
         </div>
         {/*
           A relative label says how far away the day is, not which day it is, so the weekday joins the

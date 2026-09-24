@@ -3,9 +3,12 @@ import {
   type OfficialScheduleProvider,
   type ScheduleProvider,
 } from '@abfall-radar/data-providers';
-import { createKoblenzScheduleProvider } from '@abfall-radar/data-providers/node';
 import type { Clock, FetchLike } from '@abfall-radar/data-providers/node';
-import type { District } from '@abfall-radar/domain';
+import {
+  createKoblenzScheduleProvider,
+  getKoblenzHouseholdRules,
+} from '@abfall-radar/data-providers/node';
+import type { District, HouseholdCollectionRules } from '@abfall-radar/domain';
 import type {
   City,
   Provider,
@@ -30,6 +33,15 @@ export type ProviderCatalogueEntry =
   | {
       readonly sourceKind: Extract<ProviderSourceKind, 'official_ics'>;
       readonly provider: OfficialScheduleProvider;
+      /**
+       * The municipal rules for the bins this provider publishes **no** calendar for, when they have
+       * been transcribed for it.
+       *
+       * Optional by design, and absent rather than empty when nothing has been transcribed: a provider
+       * with no rules must produce a `404`, not a rule set with no replacements, which a client would
+       * apply as though the year had no holidays.
+       */
+      readonly householdRules?: () => Promise<HouseholdCollectionRules>;
     };
 
 export type ProviderCatalogue = readonly ProviderCatalogueEntry[];
@@ -52,8 +64,26 @@ export const createProviderCatalogue = (runtime: ProviderRuntime = {}): Provider
       ...(runtime.fetch === undefined ? {} : { fetch: runtime.fetch }),
       ...(runtime.clock === undefined ? {} : { clock: runtime.clock }),
     }),
+    householdRules: () =>
+      getKoblenzHouseholdRules({
+        ...(runtime.fetch === undefined ? {} : { fetch: runtime.fetch }),
+        ...(runtime.clock === undefined ? {} : { clock: runtime.clock }),
+      }),
   },
 ];
+
+/**
+ * The household rules of a provider, or `undefined` when none have been transcribed for it.
+ *
+ * The demo provider never has any: sample data has no municipality behind it, so there is no published
+ * rule to transcribe and nothing that could be calculated honestly.
+ */
+export const findHouseholdRules = async (
+  entry: ProviderCatalogueEntry,
+): Promise<HouseholdCollectionRules | undefined> =>
+  entry.sourceKind === 'official_ics' && entry.householdRules !== undefined
+    ? entry.householdRules()
+    : undefined;
 
 export const listProviders = (catalogue: ProviderCatalogue): Provider[] =>
   catalogue.map(({ provider, sourceKind }) => ({
