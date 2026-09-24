@@ -12,6 +12,7 @@ export * from './collection-window';
 export * from './event-order';
 export * from './featured';
 export * from './format';
+export * from './household';
 export * from './locale';
 export * from './messages';
 export * from './source-day';

@@ -1,5 +1,5 @@
-import { addDays, format } from 'date-fns';
 import type { CollectionEvent, District, WasteType } from '@abfall-radar/domain';
+import { addDays, format } from 'date-fns';
 import type { ScheduleProvider } from './provider';
 
 export const demoDistricts: District[] = [

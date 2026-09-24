@@ -5,12 +5,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { fakeBrowser } from 'wxt/testing';
 import type { ServiceAreaCapability } from '@/src/schedule/capability';
 import { evidenceFor } from '@/src/test/fixtures';
-import {
-  type AppSettings,
-  defaultSettings,
-  PREVIOUS_SETTINGS_SCHEMA_VERSION,
-  SETTINGS_SCHEMA_VERSION,
-} from './settings';
+import { type AppSettings, defaultSettings, SETTINGS_SCHEMA_VERSION } from './settings';
 import {
   invalidateSelectionIfMatches,
   persistPresentation,
@@ -88,6 +83,7 @@ describe('readSettings', () => {
       visibleWasteTypes: ['paper'],
       locale: 'de',
       appearance: 'system',
+      household: null,
     });
   });
 
@@ -414,6 +410,7 @@ describe('editing preferences while the API is unreachable', () => {
   const CAPABILITY_FREE = {
     settings: STORED_WITH_SELECTION,
     expectedSelection: OFFICIAL_SELECTION,
+    expectedHousehold: null,
   } as const;
 
   it('persists preference edits when the selection is unchanged and no capability is available', async () => {
@@ -423,6 +420,7 @@ describe('editing preferences while the API is unreachable', () => {
 
     const result = await persistSettings({
       expectedSelection: (await readSettings()).selection,
+      expectedHousehold: null,
       settings: { ...STORED_WITH_SELECTION, reminderTime: '20:00', visibleWasteTypes: ['bio'] },
     });
 
@@ -447,6 +445,7 @@ describe('editing preferences while the API is unreachable', () => {
 
     const result = await persistSettings({
       expectedSelection: (await readSettings()).selection,
+      expectedHousehold: null,
       settings: {
         ...STORED_WITH_SELECTION,
         selection: { providerId: OFFICIAL_PROVIDER_ID, serviceAreaId: 'a-different-area' },
@@ -462,6 +461,7 @@ describe('editing preferences while the API is unreachable', () => {
 
     const result = await persistSettings({
       expectedSelection: (await readSettings()).selection,
+      expectedHousehold: null,
       settings: {
         ...STORED_WITH_SELECTION,
         selection: { providerId: 'another-betrieb', serviceAreaId: OFFICIAL_AREA_ID },
@@ -478,6 +478,7 @@ describe('editing preferences while the API is unreachable', () => {
     const result = await persistSettings({
       settings: STORED_WITH_SELECTION,
       expectedSelection: (await readSettings()).selection,
+      expectedHousehold: null,
     });
 
     expect(result.outcome).toBe('rejected_unknown_capability');
@@ -489,6 +490,7 @@ describe('editing preferences while the API is unreachable', () => {
 
     const result = await persistSettings({
       expectedSelection: (await readSettings()).selection,
+      expectedHousehold: null,
       settings: { ...STORED_WITH_SELECTION, reminderTime: '20:00' },
       evidence: evidenceFor(OFFICIAL_SELECTION, UNAVAILABLE),
     });
@@ -502,6 +504,7 @@ describe('editing preferences while the API is unreachable', () => {
 
     const result = await persistSettings({
       expectedSelection: (await readSettings()).selection,
+      expectedHousehold: null,
       settings: { ...STORED_WITH_SELECTION, selection: null },
     });
 
@@ -523,6 +526,7 @@ describe('editing preferences while the API is unreachable', () => {
     await persistSettings({
       settings: { ...STORED_WITH_SELECTION, reminderTime: '17:00' },
       expectedSelection: OFFICIAL_SELECTION,
+      expectedHousehold: null,
     });
 
     expect(writes).toHaveLength(1);
@@ -649,6 +653,7 @@ describe('a legacy migration whose write fails', () => {
       visibleWasteTypes: ['paper'],
       locale: 'de',
       appearance: 'system',
+      household: null,
     });
   });
 
@@ -780,6 +785,7 @@ describe('stored settings from a newer schema version', () => {
       persistSettings({
         settings: STORED_WITH_SELECTION,
         expectedSelection: OFFICIAL_SELECTION,
+        expectedHousehold: null,
         evidence: evidenceFor(OFFICIAL_SELECTION),
       }),
     ).rejects.toThrow(UnsupportedSettingsVersionError);
@@ -796,6 +802,7 @@ describe('stored settings from a newer schema version', () => {
       persistSettings({
         settings: { ...defaultSettings, reminderTime: '17:00' },
         expectedSelection: null,
+        expectedHousehold: null,
       }),
     ).rejects.toThrow(UnsupportedSettingsVersionError);
 
@@ -825,6 +832,7 @@ describe('stored settings from a newer schema version', () => {
     await persistSettings({
       settings: STORED_WITH_SELECTION,
       expectedSelection: OFFICIAL_SELECTION,
+      expectedHousehold: null,
       evidence: evidenceFor(OFFICIAL_SELECTION),
     }).catch(() => undefined);
     await invalidateSelectionIfMatches(OFFICIAL_SELECTION).catch(() => undefined);
@@ -993,6 +1001,7 @@ describe('capability evidence bound to the candidate identity', () => {
 
       const result = await persistSettings({
         expectedSelection: OFFICIAL_SELECTION,
+        expectedHousehold: null,
         settings: draftFor(OTHER_AREA),
         evidence: evidenceFor(CANDIDATE),
       });
@@ -1005,6 +1014,7 @@ describe('capability evidence bound to the candidate identity', () => {
 
       const result = await persistSettings({
         expectedSelection: OFFICIAL_SELECTION,
+        expectedHousehold: null,
         settings: draftFor(OTHER_AREA),
         evidence: evidenceFor({ ...OTHER_AREA, providerId: 'muelheim-betrieb' }),
       });
@@ -1022,6 +1032,7 @@ describe('capability evidence bound to the candidate identity', () => {
 
       await persistSettings({
         expectedSelection: OFFICIAL_SELECTION,
+        expectedHousehold: null,
         settings: draftFor(OTHER_AREA),
         evidence: evidenceFor(CANDIDATE),
       });
@@ -1034,6 +1045,7 @@ describe('capability evidence bound to the candidate identity', () => {
 
       const result = await persistSettings({
         expectedSelection: OFFICIAL_SELECTION,
+        expectedHousehold: null,
         settings: draftFor(OTHER_AREA),
         evidence: evidenceFor(OTHER_AREA),
       });
@@ -1048,6 +1060,7 @@ describe('capability evidence bound to the candidate identity', () => {
 
       const result = await persistSettings({
         expectedSelection: OFFICIAL_SELECTION,
+        expectedHousehold: null,
         settings: { ...STORED_WITH_SELECTION, reminderTime: '20:00' },
       });
 
@@ -1065,6 +1078,7 @@ describe('capability evidence bound to the candidate identity', () => {
 
       const result = await persistSettings({
         expectedSelection: OFFICIAL_SELECTION,
+        expectedHousehold: null,
         settings: draftFor(CANDIDATE),
         // Mismatched as well, so the reported outcome says which check ran first.
         evidence: evidenceFor(OTHER_PROVIDER),
@@ -1165,6 +1179,7 @@ describe('a migration racing a mutation', () => {
     // A mutation arrives while the migration is mid-flight.
     const mutating = persistSettings({
       expectedSelection: OFFICIAL_SELECTION,
+      expectedHousehold: null,
       settings: { ...STORED_WITH_SELECTION, reminderTime: '06:30' },
     });
 
@@ -1266,6 +1281,7 @@ describe('a migration racing a mutation', () => {
       readSettingsState(),
       persistSettings({
         expectedSelection: OFFICIAL_SELECTION,
+        expectedHousehold: null,
         settings: { ...STORED_WITH_SELECTION, reminderTime: '06:30' },
       }),
       readSettings(),
@@ -1374,10 +1390,10 @@ describe('reading a versioned record this build cannot read', () => {
   });
 });
 
-describe('version 3: the upgrade and the presentation preferences', () => {
+describe('version 4: the upgrade, the presentation preferences and the household bins', () => {
   /** A version-2 record as that build wrote it, every value unlike the defaults. */
   const V2_RECORD = {
-    version: PREVIOUS_SETTINGS_SCHEMA_VERSION,
+    version: 2,
     selection: OFFICIAL_SELECTION,
     remindersEnabled: false,
     reminderDaysBefore: 4,
@@ -1396,6 +1412,7 @@ describe('version 3: the upgrade and the presentation preferences', () => {
       version: SETTINGS_SCHEMA_VERSION,
       locale: 'de',
       appearance: 'system',
+      household: null,
     });
     expect(await getStored()).toEqual(settings);
     expect(set).toHaveBeenCalledTimes(1);
@@ -1453,6 +1470,7 @@ describe('version 3: the upgrade and the presentation preferences', () => {
 
     const result = await persistSettings({
       expectedSelection: OFFICIAL_SELECTION,
+      expectedHousehold: null,
       settings: {
         version: SETTINGS_SCHEMA_VERSION,
         selection: OFFICIAL_SELECTION,
@@ -1460,6 +1478,7 @@ describe('version 3: the upgrade and the presentation preferences', () => {
         reminderDaysBefore: 2,
         reminderTime: '20:00',
         visibleWasteTypes: ['paper', 'bio'],
+        household: null,
       },
     });
 
@@ -1481,5 +1500,117 @@ describe('version 3: the upgrade and the presentation preferences', () => {
       UnsupportedSettingsVersionError,
     );
     expect(await getStored()).toEqual(newer);
+  });
+});
+
+/**
+ * A Settings draft states what it believed when it opened, and the household bins are part of that.
+ *
+ * Two windows can sit on the **same** district while one of them switches the calculated bins off. The
+ * other's draft still carries the old setup, so saving an unrelated edit from it would silently restore a
+ * schedule somebody had just disabled — and the reminders that come with it. The selection being
+ * unchanged is not proof that a draft is current.
+ */
+describe('a stale draft and the household bins', () => {
+  const HOUSEHOLD = { ...OFFICIAL_SELECTION, weekday: 1 as const };
+  const ENABLED = {
+    ...defaultSettings,
+    selection: OFFICIAL_SELECTION,
+    household: HOUSEHOLD,
+  };
+
+  it('refuses an older draft that would restore bins disabled in another window', async () => {
+    await writeSettings(ENABLED);
+
+    // The newer window switches them off.
+    await persistSettings({
+      expectedSelection: OFFICIAL_SELECTION,
+      expectedHousehold: HOUSEHOLD,
+      settings: { ...ENABLED, household: null },
+    });
+
+    // The older window saves an unrelated reminder edit, still believing the bins are on.
+    const stale = await persistSettings({
+      expectedSelection: OFFICIAL_SELECTION,
+      expectedHousehold: HOUSEHOLD,
+      settings: { ...ENABLED, reminderTime: '20:00' },
+    });
+
+    expect(stale.outcome).toBe('conflict');
+    expect((await readSettings()).household).toBeNull();
+    // Nothing of the stale draft landed: it is one transactional value, not a set of fields.
+    expect((await readSettings()).reminderTime).toBe(defaultSettings.reminderTime);
+  });
+
+  it('refuses an older draft when another window changed the weekday', async () => {
+    await writeSettings(ENABLED);
+
+    await persistSettings({
+      expectedSelection: OFFICIAL_SELECTION,
+      expectedHousehold: HOUSEHOLD,
+      settings: { ...ENABLED, household: { ...OFFICIAL_SELECTION, weekday: 4 } },
+    });
+
+    const stale = await persistSettings({
+      expectedSelection: OFFICIAL_SELECTION,
+      expectedHousehold: HOUSEHOLD,
+      settings: { ...ENABLED, reminderTime: '20:00' },
+    });
+
+    expect(stale.outcome).toBe('conflict');
+    expect((await readSettings()).household).toEqual({ ...OFFICIAL_SELECTION, weekday: 4 });
+  });
+
+  it('refuses an older draft that would re-enable bins another window never had', async () => {
+    // The mirror case: the draft opened with the bins off and another window switched them on.
+    await writeSettings({ ...defaultSettings, selection: OFFICIAL_SELECTION, household: null });
+
+    await persistSettings({
+      expectedSelection: OFFICIAL_SELECTION,
+      expectedHousehold: null,
+      settings: ENABLED,
+    });
+
+    const stale = await persistSettings({
+      expectedSelection: OFFICIAL_SELECTION,
+      expectedHousehold: null,
+      settings: { ...defaultSettings, selection: OFFICIAL_SELECTION, household: null },
+    });
+
+    expect(stale.outcome).toBe('conflict');
+    expect((await readSettings()).household).toEqual(HOUSEHOLD);
+  });
+
+  it('persists a current draft that changes the household and nothing else', async () => {
+    await writeSettings(ENABLED);
+
+    const result = await persistSettings({
+      expectedSelection: OFFICIAL_SELECTION,
+      expectedHousehold: HOUSEHOLD,
+      settings: { ...ENABLED, household: { ...OFFICIAL_SELECTION, weekday: 5 } },
+    });
+
+    expect(result.outcome).toBe('persisted');
+    expect((await readSettings()).household).toEqual({ ...OFFICIAL_SELECTION, weekday: 5 });
+  });
+
+  it('leaves the language and appearance to their own write, as before', async () => {
+    await writeSettings(ENABLED);
+    await persistPresentation({ locale: 'uk', appearance: 'dark' });
+
+    const result = await persistSettings({
+      expectedSelection: OFFICIAL_SELECTION,
+      expectedHousehold: HOUSEHOLD,
+      settings: { ...ENABLED, reminderTime: '07:15' },
+    });
+
+    // The household premise does not disturb the presentation isolation the previous version established.
+    expect(result.outcome).toBe('persisted');
+    expect(await readSettings()).toMatchObject({
+      reminderTime: '07:15',
+      locale: 'uk',
+      appearance: 'dark',
+      household: HOUSEHOLD,
+    });
   });
 });

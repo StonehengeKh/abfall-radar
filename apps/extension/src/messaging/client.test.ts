@@ -254,7 +254,7 @@ describe('the settings commands', () => {
   } as const;
 
   const SETTINGS = {
-    version: 3,
+    version: 4,
     selection: SELECTION,
     remindersEnabled: true,
     reminderDaysBefore: 1,
@@ -262,6 +262,7 @@ describe('the settings commands', () => {
     visibleWasteTypes: ['paper'],
     locale: 'de',
     appearance: 'system',
+    household: null,
   } as const;
 
   it('sends only the named presentation change, never a settings snapshot', async () => {
@@ -306,21 +307,25 @@ describe('the settings commands', () => {
 
     await client.saveSettings({
       expectedSelection: SELECTION,
+      expectedHousehold: null,
       selection: SELECTION,
       remindersEnabled: false,
       reminderDaysBefore: 2,
       reminderTime: '20:00',
       visibleWasteTypes: ['bio'],
+      household: null,
     });
 
     expect(send).toHaveBeenCalledWith({
       kind: 'save_settings',
       expectedSelection: SELECTION,
+      expectedHousehold: null,
       selection: SELECTION,
       remindersEnabled: false,
       reminderDaysBefore: 2,
       reminderTime: '20:00',
       visibleWasteTypes: ['bio'],
+      household: null,
     });
   });
 
@@ -332,11 +337,13 @@ describe('the settings commands', () => {
 
     const result = await client.saveSettings({
       expectedSelection: SELECTION,
+      expectedHousehold: null,
       selection: SELECTION,
       remindersEnabled: true,
       reminderDaysBefore: 1,
       reminderTime: '18:00',
       visibleWasteTypes: ['paper'],
+      household: null,
     });
 
     expect(result.ok && result.data.outcome).toBe('conflict');

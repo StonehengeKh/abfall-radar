@@ -1,12 +1,14 @@
-import type { WasteType } from '@abfall-radar/domain';
+import type { CollectionEvent, WasteType } from '@abfall-radar/domain';
 import {
   deriveSourceToday,
   featuredCollection,
   formatCalendarDate,
   formatInstant,
   formatNameList,
+  type HouseholdScheduleResult,
   listedCollections,
   orderEvents,
+  toCollectionEvent,
 } from '@abfall-radar/schedule-format';
 import {
   CountdownPanelAt,
@@ -25,6 +27,7 @@ import {
   Loader2,
   RefreshCw,
   Settings2,
+  ShieldCheck,
 } from 'lucide-react';
 import type { ReactNode, Ref } from 'react';
 import { PopupHeader } from '@/src/features/shell/popup-header';
@@ -53,6 +56,33 @@ export interface DashboardViewProps {
   readonly visibleWasteTypes: WasteType[];
   readonly onOpenSettings: () => void;
   readonly onRetry: () => void;
+  /**
+   * The calculated household collections, when somebody has switched them on and the rules could be read.
+   *
+   * `null` in every other case — off, unreadable, or a transcription the operator has moved on from — and
+   * the schedule then renders exactly as it did before them.
+   */
+  readonly household?: HouseholdScheduleResult | null;
+  /**
+   * What the popup must say about those calculated collections, or `null` when there is nothing to say.
+   *
+   * Built by the composition root, which holds the rules: where the published rules stop, whether they
+   * could be checked, and whether the operator has moved on from the transcription. Shown beside the
+   * schedule rather than buried in Settings, because it qualifies the dates on this screen.
+   */
+  readonly householdNotice?: string | null;
+  /**
+   * What is known about the *checking* of those rules, shown whenever the rules were read at all.
+   *
+   * Deliberately not restricted to the states that went wrong. A calculated date is only as good as two
+   * separate things — an automatic check of the published documents, and a person reading the operator's
+   * later announcements — and somebody looking at a schedule that is working needs both facts exactly as
+   * much as somebody looking at one that is not. Withholding them while everything succeeded would leave
+   * the successful state as the one state that never says what it is standing on.
+   *
+   * The composition root builds the lines, because it is what holds the rules.
+   */
+  readonly householdProvenance?: readonly string[];
   /** A fixed instant, for tests. Omitted, the popup's minute clock is used. */
   readonly referenceDate?: Date;
   /**
@@ -275,6 +305,9 @@ export const DashboardView = ({
   visibleWasteTypes,
   onOpenSettings,
   onRetry,
+  household = null,
+  householdNotice = null,
+  householdProvenance = [],
   referenceDate,
   mainRef,
   settingsButtonRef,
@@ -375,7 +408,24 @@ export const DashboardView = ({
    * the countdown, the rows after it, and the decision that there is nothing to show. Deriving any of them
    * separately is how the card and the list could disagree.
    */
-  const ordered = orderEvents(visibleEvents(view.events, visibleWasteTypes));
+  /*
+   * The calculated collections, bounded by what this view is showing and filtered by the same waste-type
+   * choice the official events are. They are never deduplicated against official events and never change
+   * one: both kinds enter the single ordered list, each keeping its own `source`.
+   */
+  const calculated: readonly CollectionEvent[] =
+    household === null
+      ? []
+      : household.collections
+          .filter(
+            (collection) =>
+              collection.date >= displayRange.from && collection.date <= displayRange.to,
+          )
+          .map((collection) => toCollectionEvent(collection, provenance.areaName));
+  const ordered = orderEvents([
+    ...visibleEvents(view.events, visibleWasteTypes),
+    ...visibleEvents(calculated, visibleWasteTypes),
+  ]);
   const schedule: SharedScheduleView = {
     events: ordered,
     sourceToday: today.date,
@@ -463,6 +513,24 @@ export const DashboardView = ({
       )}
 
       <ProvenanceCard locale={locale} messages={messages} view={schedule} />
+
+      {householdNotice !== null && (
+        <StatusLine icon={<CircleSlash size={13} />}>{householdNotice}</StatusLine>
+      )}
+
+      {householdProvenance.length > 0 && (
+        <div className="flex flex-col gap-1" data-testid="household-provenance">
+          {/*
+            One line per fact, each wrapping on its own. At 320 px these are the longest strings on the
+            screen, and a single run-on paragraph is where a narrow popup starts truncating.
+          */}
+          {householdProvenance.map((line) => (
+            <StatusLine icon={<ShieldCheck size={13} />} key={line}>
+              {line}
+            </StatusLine>
+          ))}
+        </div>
+      )}
 
       {undeclared.length > 0 && (
         <StatusLine icon={<CircleSlash size={13} />}>

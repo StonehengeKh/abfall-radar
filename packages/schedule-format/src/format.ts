@@ -33,6 +33,20 @@ export const formatCalendarDate = (locale: Locale, date: IsoDate): string =>
   dateFormatter(locale).format(new Date(`${date}T00:00:00Z`));
 
 /**
+ * A formatted value that is about to end a sentence, given exactly one full stop.
+ *
+ * Ukrainian and Russian medium dates carry the year abbreviation's own period — `23 вер. 2026 р.` and
+ * `23 сент. 2026 г.` — so a template writing `${date}.` renders `р..` and `г..`. German
+ * (`23. Sept. 2026`) and English (`Sep 23, 2026`) end in a digit and must still gain one.
+ *
+ * The period therefore belongs to the **value**, not to the template. Nothing about `formatCalendarDate`
+ * changes: the same date in the middle of a sentence must not acquire a period, so this is applied where
+ * a sentence actually ends rather than by trimming the formatter's output everywhere.
+ */
+export const withSentencePeriod = (formatted: string): string =>
+  /[.!?…]$/u.test(formatted) ? formatted : `${formatted}.`;
+
+/**
  * `18.09.2026` — the same numeric form in every interface language.
  *
  * A deliberate exception to localized presentation, and only in the schedule list, where a date sits in

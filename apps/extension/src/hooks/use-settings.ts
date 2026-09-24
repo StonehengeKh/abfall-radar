@@ -222,15 +222,19 @@ export const useSettings = ({ client }: UseSettingsInput = {}) => {
       readonly evidence?: ServiceAreaCapabilityEvidence | undefined;
       /** The selection stored when the draft was created, so a stale draft is refused rather than applied. */
       readonly expectedSelection: ServiceAreaSelection | null;
+      /** What the draft believed about the household bins when it opened. */
+      readonly expectedHousehold: AppSettings['household'];
     }): Promise<SettingsWritePayload> =>
       applyWrite(
         await messaging.saveSettings({
           expectedSelection: input.expectedSelection,
+          expectedHousehold: input.expectedHousehold,
           selection: input.settings.selection,
           remindersEnabled: input.settings.remindersEnabled,
           reminderDaysBefore: input.settings.reminderDaysBefore,
           reminderTime: input.settings.reminderTime,
           visibleWasteTypes: input.settings.visibleWasteTypes,
+          household: input.settings.household,
           ...(input.evidence === undefined ? {} : { evidence: input.evidence }),
         }),
       ),

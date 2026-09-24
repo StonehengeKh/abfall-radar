@@ -182,3 +182,18 @@ synthetic calendar written for this repository.
 pnpm --filter @abfall-radar/data-providers typecheck
 pnpm --filter @abfall-radar/data-providers test
 ```
+
+## Household rules (maintained transcription)
+
+`node/koblenz/household-rules.ts` holds the week-parity rule and the year's holiday date replacements for
+the two bins the operator publishes no calendar for. **Nothing parses them**: a person read the operator's
+image and its brochure text, wrote the rows down, and recorded the digests.
+
+`node/koblenz/household-verification.ts` is the automatic half. It fetches the published table and the
+schedule page and reports three separate checks — the table's bytes, the parity claim (year included), and
+whether the page still links that table. It never repairs, re-reads or guesses; a source that moved on is
+reported as `changed`, and one that could not be reached as `unverified`.
+
+The operator's per-holiday announcements are **not** covered. Reading them is human work, recorded in
+`KOBLENZ_ANNOUNCEMENTS_REVIEWED_THROUGH`. Refreshing for a new year is a documented checklist in the
+module's own header.

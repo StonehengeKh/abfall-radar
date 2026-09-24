@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { type CollectionEvent, CollectionEventSchema } from './waste';
 import { findReminderEvent, getRelativeDateLabel, getUpcomingEvents } from './schedule';
+import { type CollectionEvent, CollectionEventSchema } from './waste';
 
 const referenceDate = new Date('2026-07-23T10:00:00');
 

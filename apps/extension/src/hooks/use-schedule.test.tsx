@@ -75,6 +75,11 @@ const createStubClient = ({ restored = null, areas, events, restoreGate }: StubO
   const client: MessagingClient = {
     ...settingsOperationsRefused,
     listCities: async () => ({ ok: true as const, data: [] }),
+    /* The household bins are opt-in; a test that does not enable them never asks for the rules. */
+    getHouseholdRules: async () => ({
+      ok: false as const,
+      failure: { kind: 'network' as const, operation: 'getHouseholdRules' as const },
+    }),
     savePresentation: async () => {
       throw new Error('savePresentation is not used by this test');
     },
@@ -222,6 +227,11 @@ describe('the authoritative capability response', () => {
     const client: MessagingClient = {
       ...settingsOperationsRefused,
       listCities: async () => ({ ok: true as const, data: [] }),
+      /* The household bins are opt-in; a test that does not enable them never asks for the rules. */
+      getHouseholdRules: async () => ({
+        ok: false as const,
+        failure: { kind: 'network' as const, operation: 'getHouseholdRules' as const },
+      }),
       savePresentation: async () => {
         throw new Error('savePresentation is not used by this test');
       },
@@ -640,6 +650,11 @@ describe('newest-selection-wins', () => {
     const client: MessagingClient = {
       ...settingsOperationsRefused,
       listCities: async () => ({ ok: true as const, data: [] }),
+      /* The household bins are opt-in; a test that does not enable them never asks for the rules. */
+      getHouseholdRules: async () => ({
+        ok: false as const,
+        failure: { kind: 'network' as const, operation: 'getHouseholdRules' as const },
+      }),
       savePresentation: async () => {
         throw new Error('savePresentation is not used by this test');
       },
@@ -999,6 +1014,11 @@ describe('clearing a withdrawn schedule', () => {
   const withdrawnAreaClient = (): MessagingClient => ({
     ...settingsOperationsRefused,
     listCities: async () => ({ ok: true as const, data: [] }),
+    /* The household bins are opt-in; a test that does not enable them never asks for the rules. */
+    getHouseholdRules: async () => ({
+      ok: false as const,
+      failure: { kind: 'network' as const, operation: 'getHouseholdRules' as const },
+    }),
     savePresentation: async () => {
       throw new Error('savePresentation is not used by this test');
     },
@@ -1155,6 +1175,11 @@ describe('the two startup paths', () => {
     const client: MessagingClient = {
       ...settingsOperationsRefused,
       listCities: async () => ({ ok: true as const, data: [] }),
+      /* The household bins are opt-in; a test that does not enable them never asks for the rules. */
+      getHouseholdRules: async () => ({
+        ok: false as const,
+        failure: { kind: 'network' as const, operation: 'getHouseholdRules' as const },
+      }),
       savePresentation: async () => {
         throw new Error('savePresentation is not used by this test');
       },
@@ -1569,6 +1594,11 @@ describe('an area response that arrives after the selection changed', () => {
     const client: MessagingClient = {
       ...settingsOperationsRefused,
       listCities: async () => ({ ok: true as const, data: [] }),
+      /* The household bins are opt-in; a test that does not enable them never asks for the rules. */
+      getHouseholdRules: async () => ({
+        ok: false as const,
+        failure: { kind: 'network' as const, operation: 'getHouseholdRules' as const },
+      }),
       savePresentation: async () => {
         throw new Error('savePresentation is not used by this test');
       },

@@ -63,6 +63,7 @@ node --env-file=.env --import tsx src/server.ts
 | `GET /api/v1/providers` | The provider catalogue. |
 | `GET /api/v1/providers/{providerId}/service-areas` | The normalized service areas of a provider. |
 | `GET /api/v1/providers/{providerId}/service-areas/{serviceAreaId}/collection-events` | Official collection events in a date range, with provenance. |
+| `GET /api/v1/providers/{providerId}/household-rules` | The municipal **rules** for the household bins a provider publishes no calendar for. |
 
 `providerId` and `serviceAreaId` accept lowercase ASCII letters and digits with internal hyphens only,
 start and end with an alphanumeric character, and are at most 64 characters. A value that violates this
@@ -70,6 +71,27 @@ transport constraint returns `400`; a well formed but unregistered identifier re
 
 `service area` is the location-neutral transport term for the domain `District` model. The domain
 model keeps its own name; renaming it is a separate contract-change task.
+
+### Household rules
+
+Koblenz empties two bins — Braune Tonne and Graue Tonne — that appear in no machine-readable source, and
+publishes no per-address weekday for them. This route therefore serves **rules, not dates**: a week-parity
+rule, the year's published date replacements, and the period those replacements are complete for. The
+weekday that turns them into dates belongs to the household and stays on the client, so nothing in the
+request identifies an address.
+
+The rules are a maintained transcription of the operator's own publications, one of which is an image.
+Every response carries:
+
+- `coverage`, a hard boundary past which a client must report limited coverage rather than extrapolate;
+- `checks`, three independent automatic checks — the table's bytes, the page's parity sentence, and the
+  page's link to that table — and `verification`, which is `verified` only when all three are;
+- `announcementsReviewedThrough`, the date a person last read the operator's announcements, which nothing
+  automatic covers.
+
+A provider with no transcribed rules answers `404`: this API cannot calculate them, which is never a
+reason for a client to invent them. See
+[ADR 0007](../../docs/decisions/0007-calculated-household-collections.md).
 
 ### Service areas
 

@@ -4,6 +4,7 @@ import type {
   ApiResult,
   CityListResponse,
   CollectionEventListResponse,
+  HouseholdRulesResponse,
   ProviderListResponse,
   ScheduleGateway,
   ScheduleRange,
@@ -37,11 +38,14 @@ type ProvidersOutcome = ApiResult<ProviderListResponse>;
 type AreasOutcome = ApiResult<ServiceAreaListResponse>;
 type EventsOutcome = ApiResult<CollectionEventListResponse>;
 
+type HouseholdRulesOutcome = ApiResult<HouseholdRulesResponse>;
+
 export type GatewayOperation =
   | 'listCities'
   | 'listProviders'
   | 'listServiceAreas'
-  | 'listCollectionEvents';
+  | 'listCollectionEvents'
+  | 'getHouseholdRules';
 
 export interface RecordedEventsCall {
   readonly providerId: string;
@@ -56,6 +60,19 @@ export interface RecordedEventsCall {
 export class FakeGateway implements ScheduleGateway {
   readonly calls: string[] = [];
   readonly eventsCalls: RecordedEventsCall[] = [];
+  readonly householdRulesCalls: string[] = [];
+  #householdRules: HouseholdRulesOutcome[] = [
+    {
+      ok: false,
+      failure: {
+        kind: 'problem',
+        operation: 'getHouseholdRules',
+        status: 404,
+        code: 'PROVIDER_NOT_FOUND',
+        requestId: 'req-household',
+      },
+    },
+  ];
   readonly areasCalls: string[] = [];
   /** Every signal handed to the gateway, in call order, so abort can be asserted directly. */
   readonly signals: Array<{ readonly operation: string; readonly signal: AbortSignal }> = [];
@@ -220,6 +237,22 @@ export class FakeGateway implements ScheduleGateway {
   listCollectionEvents(query: RecordedEventsCall, signal: AbortSignal): Promise<EventsOutcome> {
     this.eventsCalls.push(query);
     return this.#answer(this.#events, 'listCollectionEvents', signal);
+  }
+
+  /**
+   * The household rules read.
+   *
+   * Unscripted by default and answering a refusal, because the rules are optional: a test that does not
+   * mention them must see a controller that works without them, not one silently handed a rule set.
+   */
+  getHouseholdRules(providerId: string, signal: AbortSignal): Promise<HouseholdRulesOutcome> {
+    this.householdRulesCalls.push(providerId);
+    return this.#answer(this.#householdRules, 'getHouseholdRules', signal);
+  }
+
+  replaceHouseholdRules(...outcomes: HouseholdRulesOutcome[]): this {
+    this.#householdRules = [...outcomes];
+    return this;
   }
 }
 

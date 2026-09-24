@@ -1517,6 +1517,264 @@
             "timestamp": "2026-07-28T12:00:00.000Z"
           }
         ]
+      },
+      "WeekParityRule": {
+        "type": "object",
+        "properties": {
+          "even": {
+            "type": "string",
+            "enum": [
+              "residual",
+              "bio",
+              "paper",
+              "yellow_bag",
+              "green_waste",
+              "christmas_tree",
+              "hazardous",
+              "small_electronics"
+            ]
+          },
+          "odd": {
+            "type": "string",
+            "enum": [
+              "residual",
+              "bio",
+              "paper",
+              "yellow_bag",
+              "green_waste",
+              "christmas_tree",
+              "hazardous",
+              "small_electronics"
+            ]
+          }
+        },
+        "required": [
+          "even",
+          "odd"
+        ],
+        "additionalProperties": false,
+        "description": "Which bin the operator empties in an even ISO calendar week and which in an odd one. Stated as data because it is a municipal rule, not a property of waste collection.",
+        "examples": [
+          {
+            "even": "bio",
+            "odd": "residual"
+          }
+        ]
+      },
+      "CollectionDateReplacement": {
+        "type": "object",
+        "properties": {
+          "nominalDate": {
+            "type": "string",
+            "format": "date",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))$"
+          },
+          "actualDate": {
+            "type": "string",
+            "format": "date",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))$"
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "required": [
+          "nominalDate",
+          "actualDate",
+          "reason"
+        ],
+        "additionalProperties": false,
+        "description": "One published change of collection date, keyed by the date the regular rule would produce. `actualDate` may be earlier (Vorverlegung) or later (Nachverlegung) and may fall in another ISO week; the waste type is still decided by the nominal week. A client applies at most one replacement per nominal date and never chains them.",
+        "examples": [
+          {
+            "nominalDate": "2026-03-30",
+            "actualDate": "2026-03-28",
+            "reason": "Karfreitag"
+          },
+          {
+            "nominalDate": "2026-05-14",
+            "actualDate": "2026-05-15",
+            "reason": "Christi Himmelfahrt"
+          }
+        ]
+      },
+      "HouseholdRuleChecks": {
+        "type": "object",
+        "properties": {
+          "table": {
+            "type": "string",
+            "enum": [
+              "verified",
+              "unverified",
+              "changed"
+            ]
+          },
+          "parityRule": {
+            "type": "string",
+            "enum": [
+              "verified",
+              "unverified",
+              "changed"
+            ]
+          },
+          "tableLink": {
+            "type": "string",
+            "enum": [
+              "verified",
+              "unverified",
+              "changed"
+            ]
+          }
+        },
+        "required": [
+          "table",
+          "parityRule",
+          "tableLink"
+        ],
+        "additionalProperties": false,
+        "description": "The checks behind `verification`, reported separately because they fail separately and mean different things.\n\n`table`: the published document the replacements were read from is byte-for-byte unchanged. `parityRule`: the page still states the same week-parity rule, for the same year. `tableLink`: the page still points at that same document rather than a newer one.\n\nA client must not describe a schedule as freshly verified on the strength of one of these. The operator can change the sentence without touching the document, or publish next year's table and stop linking the old one.\n\n**Not covered at all:** the operator's per-holiday announcements, which restate and could amend a row. They are prose on a news page; `announcementsReviewedThrough` says how far a person has read them."
+      },
+      "RuleVerification": {
+        "type": "string",
+        "enum": [
+          "verified",
+          "unverified",
+          "changed"
+        ],
+        "description": "How the served rules stand against the document they were transcribed from.\n\n`verified`: the published document was retrieved and still matches the digest recorded when it was transcribed.\n\n`unverified`: it could not be retrieved, which is evidence of nothing — the rules are served unchanged and the client says they could not be checked.\n\n`changed`: it was retrieved and differs. The operator has published something new, so the transcription is out of date and a client must not present its dates as current."
+      },
+      "HouseholdRuleSource": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1
+          },
+          "attribution": {
+            "type": "string",
+            "minLength": 1
+          },
+          "landingPageUrl": {
+            "type": "string",
+            "format": "uri"
+          },
+          "replacementsSourceUrl": {
+            "type": "string",
+            "format": "uri"
+          },
+          "parityRuleSourceUrl": {
+            "type": "string",
+            "format": "uri"
+          },
+          "timeZone": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "required": [
+          "name",
+          "attribution",
+          "landingPageUrl",
+          "replacementsSourceUrl",
+          "parityRuleSourceUrl",
+          "timeZone"
+        ],
+        "additionalProperties": false,
+        "description": "Where the rules were transcribed from. `replacementsSourceUrl` is the document carrying the holiday table — for Koblenz an image, which is why this is a maintained transcription rather than an extraction."
+      },
+      "HouseholdRules": {
+        "type": "object",
+        "properties": {
+          "providerId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "cityId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "coverage": {
+            "type": "object",
+            "properties": {
+              "from": {
+                "type": "string",
+                "format": "date",
+                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))$"
+              },
+              "to": {
+                "type": "string",
+                "format": "date",
+                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))$"
+              }
+            },
+            "required": [
+              "from",
+              "to"
+            ],
+            "additionalProperties": false
+          },
+          "parity": {
+            "$ref": "#/components/schemas/WeekParityRule"
+          },
+          "replacements": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CollectionDateReplacement"
+            }
+          },
+          "source": {
+            "$ref": "#/components/schemas/HouseholdRuleSource"
+          },
+          "revision": {
+            "type": "string",
+            "minLength": 1
+          },
+          "checkedAt": {
+            "type": "string",
+            "format": "date-time",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$"
+          },
+          "announcementsReviewedThrough": {
+            "type": "string",
+            "format": "date",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))$"
+          },
+          "checks": {
+            "$ref": "#/components/schemas/HouseholdRuleChecks"
+          },
+          "verification": {
+            "$ref": "#/components/schemas/RuleVerification"
+          }
+        },
+        "required": [
+          "providerId",
+          "cityId",
+          "coverage",
+          "parity",
+          "replacements",
+          "source",
+          "revision",
+          "checkedAt",
+          "announcementsReviewedThrough",
+          "checks",
+          "verification"
+        ],
+        "additionalProperties": false,
+        "description": "The municipal rules a client calculates household collections from, for one provider and one period.\n\n`coverage` is a hard boundary: the operator publishes holiday replacements one year at a time, so beyond `coverage.to` nothing is known about whether a week is moved. A client must report limited coverage there rather than extending the parity rule."
+      },
+      "HouseholdRulesResponse": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/HouseholdRules"
+          }
+        },
+        "required": [
+          "data"
+        ],
+        "additionalProperties": false,
+        "description": "The municipal rules for the household bins this provider publishes no calendar for, with the period they cover and how they stand against the documents they were transcribed from."
       }
     }
   },
@@ -1646,6 +1904,72 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ServiceAreaListResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request did not satisfy the documented request schema. `errors` lists the rejected fields with stable paths and machine-readable codes.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationProblem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The supplied provider identifier is well formed but no provider is registered for it.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProviderNotFoundProblem"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unexpected server error occurred. The response follows RFC 9457 and never contains stack traces, upstream payloads, or infrastructure details. Correlate `requestId` with the server logs.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/providers/{providerId}/household-rules": {
+      "get": {
+        "operationId": "getProviderHouseholdRules",
+        "summary": "Get the municipal rules for the household bins a provider publishes no calendar for",
+        "tags": [
+          "Providers"
+        ],
+        "description": "Returns the rules a client calculates Bioabfall and Restabfall collections from: which bin an even and an odd ISO calendar week carries, the published table of holiday date replacements, and the period those replacements are complete for.\n\nThis endpoint serves **rules, not dates**. The operator publishes no calendar for these two bins and no per-address weekday — the weekday comes from the household and stays on the client, so nothing here identifies an address.\n\nThe rules are a maintained transcription of the operator's own publications, one of which is an image. `verification` reports whether that published document still matches the digest recorded when it was transcribed, so a client can refuse to present dates from a transcription the operator has moved on from. It is not evidence of a rule being wrong when it says `unverified`: that only means the document could not be retrieved.\n\nA provider that publishes an official calendar for these bins, or for which no rules have been transcribed, answers `404`. That is a statement that this API cannot calculate them, never a reason for a client to invent them.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "maxLength": 64,
+              "pattern": "^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$"
+            },
+            "example": "demo",
+            "in": "path",
+            "name": "providerId",
+            "required": true,
+            "description": "Identifier of a provider returned by `GET /api/v1/providers`."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The municipal rules for the household bins this provider publishes no calendar for, with the period they cover and how they stand against the documents they were transcribed from.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HouseholdRulesResponse"
                 }
               }
             }

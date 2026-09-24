@@ -1,4 +1,11 @@
-import { featuredCollection, listedCollections } from '@abfall-radar/schedule-format';
+import type { CollectionEvent } from '@abfall-radar/domain';
+import {
+  featuredCollection,
+  type HouseholdScheduleResult,
+  listedCollections,
+  orderEvents,
+  toCollectionEvent,
+} from '@abfall-radar/schedule-format';
 import {
   CountdownPanel,
   EventRow,
@@ -24,9 +31,33 @@ import type { AcceptedSchedule } from '@/src/schedule/view-state';
  * is reproduced exactly as published, in every language.
  */
 
+/**
+ * The calculated household collections, as domain events, bounded by what the surface is showing.
+ *
+ * Two things are deliberately **not** done here. A calculated collection is never deduplicated against a
+ * published one — they are different statements and the operator does publish some of these bins for some
+ * areas — and the official events are never re-ordered or re-dated. All that happens is that both kinds
+ * enter one ordered list, each keeping its own `source`.
+ */
+const householdEvents = (
+  household: HouseholdScheduleResult | null,
+  schedule: AcceptedSchedule,
+): readonly CollectionEvent[] =>
+  household === null
+    ? []
+    : household.collections
+        .filter(
+          (collection) =>
+            collection.date >= schedule.range.from && collection.date <= schedule.range.to,
+        )
+        .map((collection) => toCollectionEvent(collection, schedule.selection.serviceAreaId));
+
 /** The web's accepted schedule, as the shared presentation reads it. */
-const toScheduleView = (schedule: AcceptedSchedule): ScheduleView => ({
-  events: schedule.events,
+const toScheduleView = (
+  schedule: AcceptedSchedule,
+  household: HouseholdScheduleResult | null,
+): ScheduleView => ({
+  events: orderEvents([...schedule.events, ...householdEvents(household, schedule)]),
   sourceToday: schedule.sourceToday,
   timeZone: schedule.meta.source.timeZone,
   range: schedule.range,
@@ -60,9 +91,19 @@ const toScheduleView = (schedule: AcceptedSchedule): ScheduleView => ({
  * `grid-flow-dense` covers the case where the countdown has nothing to count — the source card then
  * backfills the top of the right column instead of leaving a hole above itself.
  */
-export const ScheduleSurface = ({ schedule }: { readonly schedule: AcceptedSchedule }) => {
+export const ScheduleSurface = ({
+  schedule,
+  household = null,
+}: {
+  readonly schedule: AcceptedSchedule;
+  /**
+   * The calculated household collections, when somebody has switched them on and the rules could be
+   * read. `null` covers every other case, and the schedule renders exactly as it did before them.
+   */
+  readonly household?: HouseholdScheduleResult | null;
+}) => {
   const { locale, messages } = useLocale();
-  const view = toScheduleView(schedule);
+  const view = toScheduleView(schedule, household);
   // The list is everything the featured card is not showing, by the shared rule.
   const rest = listedCollections(view.events, featuredCollection(view.events, view.sourceToday));
 

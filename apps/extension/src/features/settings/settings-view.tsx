@@ -2,6 +2,7 @@ import type { WasteType } from '@abfall-radar/domain';
 import { ArrowLeft, BellRing, Check, Clock3 } from 'lucide-react';
 import { type Ref, useId, useState } from 'react';
 import { AreaPicker } from '@/src/features/selection/area-picker';
+import { HouseholdSection } from '@/src/features/settings/household-section';
 import { PopupHeader } from '@/src/features/shell/popup-header';
 import {
   type AreaCatalogueState,
@@ -12,7 +13,7 @@ import {
 import { useCopy } from '@/src/i18n/copy';
 import type { ServiceAreaSummary } from '@/src/messaging/contract';
 import type { ServiceAreaCapabilityEvidence } from '@/src/schedule/capability';
-import type { ServiceAreaSelection, SettingsDraft } from '@/src/storage/settings';
+import type { AppSettings, ServiceAreaSelection, SettingsDraft } from '@/src/storage/settings';
 
 /**
  * Settings is transactional.
@@ -57,6 +58,14 @@ export interface SettingsSaveInput {
    * draft — writing it anyway would resurrect the first or overwrite the second.
    */
   readonly expectedSelection: ServiceAreaSelection | null;
+  /**
+   * The household setup stored when this draft was created.
+   *
+   * The premise of the draft for this field, exactly as `expectedSelection` is for the selection: two
+   * windows on the same district can disagree about whether the calculated bins are on, and the older
+   * draft must not win.
+   */
+  readonly expectedHousehold: AppSettings['household'];
 }
 
 export interface SettingsViewProps {
@@ -129,6 +138,8 @@ export const SettingsView = ({
    * selection has moved on since. Refreshing it would defeat the check entirely.
    */
   const [expectedSelection] = useState<ServiceAreaSelection | null>(initialSettings.selection);
+  /** Captured once, with the selection, and never refreshed: it is the draft's premise, not a live value. */
+  const [expectedHousehold] = useState(initialSettings.household);
   const [isSaving, setIsSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [areaError, setAreaError] = useState<string | null>(null);
@@ -197,6 +208,7 @@ export const SettingsView = ({
         settings: draft,
         evidence: draftEvidence,
         expectedSelection,
+        expectedHousehold,
       });
 
       if (outcome === 'persisted') {
@@ -357,6 +369,16 @@ export const SettingsView = ({
           <option value="20:00">20:00</option>
         </select>
       </section>
+
+      {/*
+        The calculated bins, beside the reminders they can produce and the waste types they are filtered
+        by. Edits the draft like everything else here: nothing is stored until Save.
+      */}
+      <HouseholdSection
+        household={draft.household}
+        onChange={(household) => setDraft((current) => ({ ...current, household }))}
+        selection={selection}
+      />
 
       <fieldset className="mt-3 min-w-0 rounded-ar-xl border border-ar-border bg-ar-surface p-4 shadow-ar-sm">
         <legend className="px-1 text-sm font-semibold">{messages.settings.wasteTypes}</legend>

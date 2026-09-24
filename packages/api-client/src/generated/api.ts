@@ -99,6 +99,32 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/providers/{providerId}/household-rules": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get the municipal rules for the household bins a provider publishes no calendar for
+         * @description Returns the rules a client calculates Bioabfall and Restabfall collections from: which bin an even and an odd ISO calendar week carries, the published table of holiday date replacements, and the period those replacements are complete for.
+         *
+         *     This endpoint serves **rules, not dates**. The operator publishes no calendar for these two bins and no per-address weekday — the weekday comes from the household and stays on the client, so nothing here identifies an address.
+         *
+         *     The rules are a maintained transcription of the operator's own publications, one of which is an image. `verification` reports whether that published document still matches the digest recorded when it was transcribed, so a client can refuse to present dates from a transcription the operator has moved on from. It is not evidence of a rule being wrong when it says `unverified`: that only means the document could not be retrieved.
+         *
+         *     A provider that publishes an official calendar for these bins, or for which no rules have been transcribed, answers `404`. That is a statement that this API cannot calculate them, never a reason for a client to invent them.
+         */
+        get: operations["getProviderHouseholdRules"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/providers/{providerId}/service-areas/{serviceAreaId}/collection-events": {
         parameters: {
             query?: never;
@@ -884,6 +910,108 @@ export interface components {
             /** Format: date-time */
             timestamp: string;
         };
+        /**
+         * @description Which bin the operator empties in an even ISO calendar week and which in an odd one. Stated as data because it is a municipal rule, not a property of waste collection.
+         * @example {
+         *       "even": "bio",
+         *       "odd": "residual"
+         *     }
+         */
+        WeekParityRule: {
+            /** @enum {string} */
+            even: "residual" | "bio" | "paper" | "yellow_bag" | "green_waste" | "christmas_tree" | "hazardous" | "small_electronics";
+            /** @enum {string} */
+            odd: "residual" | "bio" | "paper" | "yellow_bag" | "green_waste" | "christmas_tree" | "hazardous" | "small_electronics";
+        };
+        /**
+         * @description One published change of collection date, keyed by the date the regular rule would produce. `actualDate` may be earlier (Vorverlegung) or later (Nachverlegung) and may fall in another ISO week; the waste type is still decided by the nominal week. A client applies at most one replacement per nominal date and never chains them.
+         * @example {
+         *       "nominalDate": "2026-03-30",
+         *       "actualDate": "2026-03-28",
+         *       "reason": "Karfreitag"
+         *     }
+         * @example {
+         *       "nominalDate": "2026-05-14",
+         *       "actualDate": "2026-05-15",
+         *       "reason": "Christi Himmelfahrt"
+         *     }
+         */
+        CollectionDateReplacement: {
+            /** Format: date */
+            nominalDate: string;
+            /** Format: date */
+            actualDate: string;
+            reason: string;
+        };
+        /**
+         * @description The checks behind `verification`, reported separately because they fail separately and mean different things.
+         *
+         *     `table`: the published document the replacements were read from is byte-for-byte unchanged. `parityRule`: the page still states the same week-parity rule, for the same year. `tableLink`: the page still points at that same document rather than a newer one.
+         *
+         *     A client must not describe a schedule as freshly verified on the strength of one of these. The operator can change the sentence without touching the document, or publish next year's table and stop linking the old one.
+         *
+         *     **Not covered at all:** the operator's per-holiday announcements, which restate and could amend a row. They are prose on a news page; `announcementsReviewedThrough` says how far a person has read them.
+         */
+        HouseholdRuleChecks: {
+            /** @enum {string} */
+            table: "verified" | "unverified" | "changed";
+            /** @enum {string} */
+            parityRule: "verified" | "unverified" | "changed";
+            /** @enum {string} */
+            tableLink: "verified" | "unverified" | "changed";
+        };
+        /**
+         * @description How the served rules stand against the document they were transcribed from.
+         *
+         *     `verified`: the published document was retrieved and still matches the digest recorded when it was transcribed.
+         *
+         *     `unverified`: it could not be retrieved, which is evidence of nothing — the rules are served unchanged and the client says they could not be checked.
+         *
+         *     `changed`: it was retrieved and differs. The operator has published something new, so the transcription is out of date and a client must not present its dates as current.
+         * @enum {string}
+         */
+        RuleVerification: "verified" | "unverified" | "changed";
+        /** @description Where the rules were transcribed from. `replacementsSourceUrl` is the document carrying the holiday table — for Koblenz an image, which is why this is a maintained transcription rather than an extraction. */
+        HouseholdRuleSource: {
+            name: string;
+            attribution: string;
+            /** Format: uri */
+            landingPageUrl: string;
+            /** Format: uri */
+            replacementsSourceUrl: string;
+            /** Format: uri */
+            parityRuleSourceUrl: string;
+            timeZone: string;
+        };
+        /**
+         * @description The municipal rules a client calculates household collections from, for one provider and one period.
+         *
+         *     `coverage` is a hard boundary: the operator publishes holiday replacements one year at a time, so beyond `coverage.to` nothing is known about whether a week is moved. A client must report limited coverage there rather than extending the parity rule.
+         */
+        HouseholdRules: {
+            providerId: string;
+            cityId: string;
+            coverage: {
+                /** Format: date */
+                from: string;
+                /** Format: date */
+                to: string;
+            };
+            parity: components["schemas"]["WeekParityRule"];
+            replacements: components["schemas"]["CollectionDateReplacement"][];
+            source: components["schemas"]["HouseholdRuleSource"];
+            revision: string;
+            /** Format: date-time */
+            checkedAt: string;
+            /** Format: date */
+            announcementsReviewedThrough: string;
+            checks: components["schemas"]["HouseholdRuleChecks"];
+            verification: components["schemas"]["RuleVerification"];
+        };
+        /** @description The municipal rules for the household bins this provider publishes no calendar for, with the period they cover and how they stand against the documents they were transcribed from. */
+        HouseholdRulesResponse: {
+            data: components["schemas"]["HouseholdRules"];
+        };
     };
     responses: never;
     parameters: never;
@@ -1002,6 +1130,59 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ServiceAreaListResponse"];
+                };
+            };
+            /** @description The request did not satisfy the documented request schema. `errors` lists the rejected fields with stable paths and machine-readable codes. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ValidationProblem"];
+                };
+            };
+            /** @description The supplied provider identifier is well formed but no provider is registered for it. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProviderNotFoundProblem"];
+                };
+            };
+            /** @description An unexpected server error occurred. The response follows RFC 9457 and never contains stack traces, upstream payloads, or infrastructure details. Correlate `requestId` with the server logs. */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetails"];
+                };
+            };
+        };
+    };
+    getProviderHouseholdRules: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /**
+                 * @description Identifier of a provider returned by `GET /api/v1/providers`.
+                 * @example demo
+                 */
+                providerId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The municipal rules for the household bins this provider publishes no calendar for, with the period they cover and how they stand against the documents they were transcribed from. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HouseholdRulesResponse"];
                 };
             };
             /** @description The request did not satisfy the documented request schema. `errors` lists the rejected fields with stable paths and machine-readable codes. */

@@ -308,7 +308,11 @@ describe('the list card structure', () => {
     // The title's track can shrink, so a long title wraps inside it rather than moving under the date.
     expect(grid.className).toContain('minmax(0,1fr)');
     expect(title.className).toContain('min-w-0');
-    expect(title.className).toContain('break-words');
+    /*
+     * `wrap-anywhere`, not `break-words`: only the former lowers the title's min-content width, which is
+     * what lets a long single-word title wrap inside the column instead of widening the card.
+     */
+    expect(title.className).toContain('wrap-anywhere');
   });
 
   it('keeps a drop-off’s title and published details together, details after the title', async () => {

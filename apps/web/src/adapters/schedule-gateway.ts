@@ -3,6 +3,7 @@ import type {
   ApiResult,
   CityListResponse,
   CollectionEventListResponse,
+  HouseholdRulesResponse,
   ProviderListResponse,
   ScheduleRange,
   ServiceAreaListResponse,
@@ -16,6 +17,8 @@ export type {
   CollectionEventListResponse,
   CollectionEventMeta,
   CollectionEventTransport,
+  HouseholdRules,
+  HouseholdRulesResponse,
   InvalidResponseFailure,
   Operation,
   ProblemFailure,
@@ -28,7 +31,7 @@ export type {
 } from '@abfall-radar/api-client';
 
 /**
- * The four reads the product needs, and nothing else.
+ * The five reads the product needs, and nothing else.
  *
  * Results pass through unchanged: no product retry, no persisted cache, and no second validation of
  * what the client already validated. Web-owned cross-request invariants belong to the schedule
@@ -51,6 +54,17 @@ export interface ScheduleGateway {
     },
     signal: AbortSignal,
   ): Promise<ApiResult<CollectionEventListResponse>>;
+  /**
+   * The municipal rules for the bins the operator publishes no calendar for.
+   *
+   * Separate from the schedule reads on purpose: it is optional, it answers for a provider rather than a
+   * district, and a failure here must leave the official schedule exactly as it is. Nothing about the
+   * household — least of all its weekday — is sent.
+   */
+  getHouseholdRules(
+    providerId: string,
+    signal: AbortSignal,
+  ): Promise<ApiResult<HouseholdRulesResponse>>;
 }
 
 export const createScheduleGateway = (client: ApiClient): ScheduleGateway => ({
@@ -58,4 +72,5 @@ export const createScheduleGateway = (client: ApiClient): ScheduleGateway => ({
   listProviders: (signal) => client.listProviders({ signal }),
   listServiceAreas: (providerId, signal) => client.listServiceAreas(providerId, { signal }),
   listCollectionEvents: (query, signal) => client.listCollectionEvents({ ...query, signal }),
+  getHouseholdRules: (providerId, signal) => client.getHouseholdRules(providerId, { signal }),
 });

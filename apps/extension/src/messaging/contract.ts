@@ -10,6 +10,7 @@ import { WebUrlSchema } from '@/src/schedule/web-url';
 import {
   AppearanceSchema,
   AppSettingsSchema,
+  HouseholdSetupSchema,
   LocaleSchema,
   ReminderTimeSchema,
   ServiceAreaSelectionSchema,
@@ -41,6 +42,7 @@ export const MESSAGE_OPERATIONS = [
   'listProviders',
   'listServiceAreas',
   'listCollectionEvents',
+  'getHouseholdRules',
 ] as const;
 
 export type MessageOperation = (typeof MESSAGE_OPERATIONS)[number];
@@ -65,6 +67,17 @@ export const ListCitiesRequestSchema = z.strictObject({
 
 export const ListProvidersRequestSchema = z.strictObject({
   kind: z.literal('list_providers'),
+});
+
+/**
+ * The municipal rules for the bins the operator publishes no calendar for.
+ *
+ * Per provider, never per household: the weekday that turns these rules into dates is stored in this
+ * extension's own settings and never travels to the worker's network boundary, let alone to the API.
+ */
+export const GetHouseholdRulesRequestSchema = z.strictObject({
+  kind: z.literal('get_household_rules'),
+  providerId: identifier(),
 });
 
 export const ListServiceAreasRequestSchema = z.strictObject({
@@ -162,11 +175,25 @@ export const SaveSettingsRequestSchema = z.strictObject({
    * draft — so the worker compares this against what is stored before applying anything.
    */
   expectedSelection: ServiceAreaSelectionSchema.nullable(),
+  /**
+   * The household setup stored when the draft was created, for the same concurrency check.
+   *
+   * Two Settings windows can sit on the same district while one disables the calculated bins; without
+   * this, the other's unrelated edit would restore them.
+   */
+  expectedHousehold: HouseholdSetupSchema.nullable(),
   selection: ServiceAreaSelectionSchema.nullable(),
   remindersEnabled: z.boolean(),
   reminderDaysBefore: z.number().int().min(0).max(7),
   reminderTime: ReminderTimeSchema,
   visibleWasteTypes: z.array(WasteTypeSchema).min(1),
+  /**
+   * The household's weekday for the calculated bins, or `null` when they are switched off.
+   *
+   * Carried with the draft like every other edited field, and bound to a district by its own shape, so
+   * the worker stores a weekday only ever against the address it was confirmed for.
+   */
+  household: HouseholdSetupSchema.nullable(),
   /** Identity-bound for the same reason as above, and optional for the same reason as in the repository. */
   evidence: ServiceAreaCapabilityEvidenceSchema.optional(),
 });
@@ -200,6 +227,7 @@ export const SavePresentationRequestSchema = z.strictObject({
 export const GatewayRequestSchema = z.discriminatedUnion('kind', [
   ListCitiesRequestSchema,
   ListProvidersRequestSchema,
+  GetHouseholdRulesRequestSchema,
   ListServiceAreasRequestSchema,
   ListCollectionEventsRequestSchema,
   RestoreCachedScheduleRequestSchema,
@@ -538,6 +566,51 @@ export const CitiesResponseSchema = z.union([
   failureEnvelope(),
 ]);
 
+/**
+ * The rules as they cross the worker boundary.
+ *
+ * Validated again here rather than forwarded: the popup calculates collection dates from this, and a
+ * malformed replacement or a missing coverage bound would become a date somebody puts a bin out for.
+ */
+export const HouseholdRulesSummarySchema = z.strictObject({
+  providerId: identifier(),
+  cityId: identifier(),
+  coverage: z.strictObject({ from: z.iso.date(), to: z.iso.date() }),
+  parity: z.strictObject({ even: WasteTypeSchema, odd: WasteTypeSchema }),
+  replacements: z.array(
+    z.strictObject({
+      nominalDate: z.iso.date(),
+      actualDate: z.iso.date(),
+      reason: z.string().min(1),
+    }),
+  ),
+  source: z.strictObject({
+    name: z.string().min(1),
+    attribution: z.string().min(1),
+    landingPageUrl: z.string().min(1),
+    replacementsSourceUrl: z.string().min(1),
+    parityRuleSourceUrl: z.string().min(1),
+    timeZone: z.string().min(1),
+  }),
+  revision: z.string().min(1),
+  checkedAt: z.string().min(1),
+  announcementsReviewedThrough: z.iso.date(),
+  /** The three checks behind `verification`, so a surface can say what was actually established. */
+  checks: z.strictObject({
+    table: z.enum(['verified', 'unverified', 'changed']),
+    parityRule: z.enum(['verified', 'unverified', 'changed']),
+    tableLink: z.enum(['verified', 'unverified', 'changed']),
+  }),
+  verification: z.enum(['verified', 'unverified', 'changed']),
+});
+
+export type HouseholdRulesSummary = z.infer<typeof HouseholdRulesSummarySchema>;
+
+export const HouseholdRulesResponseSchema = z.union([
+  successEnvelope(HouseholdRulesSummarySchema),
+  failureEnvelope(),
+]);
+
 export const ProvidersResponseSchema = z.union([
   successEnvelope(z.array(ProviderSummarySchema)),
   failureEnvelope(),
@@ -767,6 +840,7 @@ export const SETTINGS_CHANGED_NOTIFICATION: SettingsChangedNotification = {
 /** Every envelope a handler may answer with, for the handler's own return type. */
 export const GatewayResponseSchema = z.union([
   CitiesResponseSchema,
+  HouseholdRulesResponseSchema,
   ProvidersResponseSchema,
   ServiceAreasResponseSchema,
   ScheduleResponseSchema,
@@ -783,6 +857,7 @@ export type GatewayResponse = z.infer<typeof GatewayResponseSchema>;
 /** Maps a request kind onto the operation it performs, for logging and failure reporting. */
 export const OPERATION_BY_REQUEST_KIND = {
   list_cities: 'listCities',
+  get_household_rules: 'getHouseholdRules',
   list_providers: 'listProviders',
   list_service_areas: 'listServiceAreas',
   list_collection_events: 'listCollectionEvents',

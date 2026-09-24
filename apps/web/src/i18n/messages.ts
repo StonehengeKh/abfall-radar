@@ -1,4 +1,8 @@
-import { SCHEDULE_MESSAGES, type ScheduleMessages } from '@abfall-radar/schedule-format';
+import {
+  SCHEDULE_MESSAGES,
+  type ScheduleMessages,
+  withSentencePeriod,
+} from '@abfall-radar/schedule-format';
 import type { Locale } from '@/src/i18n/locale';
 import type { AppViewKind } from '@/src/schedule/view-state';
 
@@ -59,6 +63,31 @@ export interface WebMessages {
     readonly noneSelected: string;
   };
   readonly actions: Record<'back' | 'changeSelection' | 'retry' | 'confirm', string>;
+  /**
+   * The optional household bins.
+   *
+   * The operator publishes no calendar for the brown and grey bins and no per-address weekday, so this
+   * copy has one job above all others: to say plainly that these dates are **calculated** from published
+   * rules and a weekday the person confirmed, and to say where that stops being true.
+   */
+  readonly household: {
+    readonly heading: string;
+    readonly intro: string;
+    readonly enable: string;
+    readonly weekdayLabel: string;
+    readonly weekdayHint: string;
+    readonly confirm: string;
+    readonly change: string;
+    readonly disable: string;
+    readonly loading: string;
+    readonly unavailable: string;
+    readonly notOffered: string;
+    readonly limitedCoverage: (date: string) => string;
+    readonly unverified: string;
+    readonly changed: string;
+    readonly sourceLink: string;
+    readonly weekdays: Record<1 | 2 | 3 | 4 | 5 | 6 | 7, string>;
+  };
   readonly diagnostics: {
     readonly identifier: string;
     readonly recoveryIdentifier: string;
@@ -85,13 +114,15 @@ export interface WebMessages {
 /**
  * Everything the web application renders: the shared schedule copy and the web's own, as one value.
  *
- * `schedule` is the one section both sides write to — the shared collection-day words and the web's
- * district search — so it is merged rather than replaced, which keeps every existing lookup such as
- * `messages.schedule.inProgress` exactly as it was.
+ * `schedule` and `household` are the sections both sides write to — the shared collection-day words and
+ * the web's district search, the shared "calculated" mark and the web's setup panel — so they are merged
+ * rather than replaced, which keeps every existing lookup such as `messages.schedule.inProgress` exactly
+ * as it was.
  */
-export type Messages = Omit<ScheduleMessages, 'schedule'> &
-  Omit<WebMessages, 'schedule'> & {
+export type Messages = Omit<ScheduleMessages, 'schedule' | 'household'> &
+  Omit<WebMessages, 'schedule' | 'household'> & {
     readonly schedule: ScheduleMessages['schedule'] & WebMessages['schedule'];
+    readonly household: ScheduleMessages['household'] & WebMessages['household'];
   };
 
 const de: WebMessages = {
@@ -176,6 +207,36 @@ const de: WebMessages = {
     selectDistrict: 'Wählen Sie Ihr Gebiet.',
     selected: 'Ausgewählt',
     noneSelected: 'Noch kein Gebiet ausgewählt',
+  },
+  household: {
+    heading: 'Braune und Graue Tonne',
+    intro:
+      'Für diese beiden Tonnen veröffentlicht der Betrieb keinen digitalen Kalender. Mit deinem Abfuhrtag lassen sich die Termine aus den veröffentlichten Regeln berechnen.',
+    enable: 'Termine berechnen',
+    weekdayLabel: 'Regulärer Abfuhrtag',
+    weekdayHint: 'Den Abfuhrtag deines Haushalts nennt dir der Betrieb unter 0261 129-4545.',
+    confirm: 'Abfuhrtag bestätigen',
+    change: 'Abfuhrtag ändern',
+    disable: 'Nicht mehr anzeigen',
+    loading: 'Regeln werden geladen…',
+    unavailable: 'Die Regeln konnten nicht geladen werden. Dein Abfuhrtag bleibt gespeichert.',
+    notOffered: 'Für diesen Betrieb liegen keine Regeln für diese Tonnen vor.',
+    limitedCoverage: (date) =>
+      `Berechnet bis ${withSentencePeriod(date)} Für die Zeit danach hat der Betrieb noch keine Feiertagsverlegungen veröffentlicht.`,
+    unverified:
+      'Die veröffentlichte Tabelle konnte gerade nicht geprüft werden. Die Regeln sind unverändert.',
+    changed:
+      'Der Betrieb hat eine neue Tabelle veröffentlicht. Diese Termine sind nicht mehr aktuell und werden nicht angezeigt.',
+    sourceLink: 'Veröffentlichte Regeln öffnen',
+    weekdays: {
+      1: 'Montag',
+      2: 'Dienstag',
+      3: 'Mittwoch',
+      4: 'Donnerstag',
+      5: 'Freitag',
+      6: 'Samstag',
+      7: 'Sonntag',
+    },
   },
   actions: {
     back: 'Zurück',
@@ -284,6 +345,35 @@ const en: WebMessages = {
     selected: 'Selected',
     noneSelected: 'No district selected yet',
   },
+  household: {
+    heading: 'Brown and grey bin',
+    intro:
+      'The operator publishes no digital calendar for these two bins. With your collection weekday, the dates can be calculated from the published rules.',
+    enable: 'Calculate these dates',
+    weekdayLabel: 'Regular collection weekday',
+    weekdayHint: 'The operator tells you your household’s collection day on 0261 129-4545.',
+    confirm: 'Confirm weekday',
+    change: 'Change weekday',
+    disable: 'Stop showing these',
+    loading: 'Loading the rules…',
+    unavailable: 'The rules could not be loaded. Your weekday is still saved.',
+    notOffered: 'No rules for these bins are available for this operator.',
+    limitedCoverage: (date) =>
+      `Calculated to ${withSentencePeriod(date)} The operator has not published holiday changes beyond that yet.`,
+    unverified: 'The published table could not be checked just now. The rules are unchanged.',
+    changed:
+      'The operator has published a new table. These dates are no longer current and are not shown.',
+    sourceLink: 'Open the published rules',
+    weekdays: {
+      1: 'Monday',
+      2: 'Tuesday',
+      3: 'Wednesday',
+      4: 'Thursday',
+      5: 'Friday',
+      6: 'Saturday',
+      7: 'Sunday',
+    },
+  },
   actions: {
     back: 'Back',
     changeSelection: 'Change selection',
@@ -388,6 +478,34 @@ const uk: WebMessages = {
     selectDistrict: 'Оберіть свій район.',
     selected: 'Обрано',
     noneSelected: 'Район ще не обрано',
+  },
+  household: {
+    heading: 'Коричневий і сірий контейнер',
+    intro:
+      'Для цих двох контейнерів оператор не публікує цифрового календаря. Знаючи ваш день вивезення, дати можна обчислити за опублікованими правилами.',
+    enable: 'Обчислити ці дати',
+    weekdayLabel: 'Звичайний день вивезення',
+    weekdayHint: 'День вивезення для вашого домогосподарства оператор повідомляє за 0261 129-4545.',
+    confirm: 'Підтвердити день',
+    change: 'Змінити день',
+    disable: 'Більше не показувати',
+    loading: 'Завантаження правил…',
+    unavailable: 'Не вдалося завантажити правила. Ваш день вивезення збережено.',
+    notOffered: 'Для цього оператора немає правил щодо цих контейнерів.',
+    limitedCoverage: (date) =>
+      `Обчислено до ${withSentencePeriod(date)} Перенесення через свята після цієї дати оператор ще не опублікував.`,
+    unverified: 'Опубліковану таблицю зараз не вдалося перевірити. Правила без змін.',
+    changed: 'Оператор опублікував нову таблицю. Ці дати вже не актуальні та не відображаються.',
+    sourceLink: 'Відкрити опубліковані правила',
+    weekdays: {
+      1: 'Понеділок',
+      2: 'Вівторок',
+      3: 'Середа',
+      4: 'Четвер',
+      5: 'П’ятниця',
+      6: 'Субота',
+      7: 'Неділя',
+    },
   },
   actions: {
     back: 'Назад',
@@ -494,6 +612,34 @@ const ru: WebMessages = {
     selected: 'Выбрано',
     noneSelected: 'Район ещё не выбран',
   },
+  household: {
+    heading: 'Коричневый и серый контейнер',
+    intro:
+      'Для этих двух контейнеров оператор не публикует цифровой календарь. Зная ваш день вывоза, даты можно рассчитать по опубликованным правилам.',
+    enable: 'Рассчитать эти даты',
+    weekdayLabel: 'Обычный день вывоза',
+    weekdayHint: 'День вывоза для вашего домохозяйства оператор сообщает по 0261 129-4545.',
+    confirm: 'Подтвердить день',
+    change: 'Изменить день',
+    disable: 'Больше не показывать',
+    loading: 'Загрузка правил…',
+    unavailable: 'Не удалось загрузить правила. Ваш день вывоза сохранён.',
+    notOffered: 'Для этого оператора нет правил по этим контейнерам.',
+    limitedCoverage: (date) =>
+      `Рассчитано до ${withSentencePeriod(date)} Переносы из-за праздников после этой даты оператор ещё не опубликовал.`,
+    unverified: 'Опубликованную таблицу сейчас не удалось проверить. Правила без изменений.',
+    changed: 'Оператор опубликовал новую таблицу. Эти даты больше не актуальны и не показываются.',
+    sourceLink: 'Открыть опубликованные правила',
+    weekdays: {
+      1: 'Понедельник',
+      2: 'Вторник',
+      3: 'Среда',
+      4: 'Четверг',
+      5: 'Пятница',
+      6: 'Суббота',
+      7: 'Воскресенье',
+    },
+  },
   actions: {
     back: 'Назад',
     changeSelection: 'Изменить выбор',
@@ -521,7 +667,12 @@ const ru: WebMessages = {
 const compose = (locale: Locale, own: WebMessages): Messages => {
   const shared = SCHEDULE_MESSAGES[locale];
 
-  return { ...shared, ...own, schedule: { ...shared.schedule, ...own.schedule } };
+  return {
+    ...shared,
+    ...own,
+    schedule: { ...shared.schedule, ...own.schedule },
+    household: { ...shared.household, ...own.household },
+  };
 };
 
 export const MESSAGES: Record<Locale, Messages> = {

@@ -1,5 +1,10 @@
 import { type CollectionEvent, wasteLabels } from '@abfall-radar/domain';
-import { compareEvents, formatCollectionWindow } from '@abfall-radar/schedule-format';
+import {
+  compareEvents,
+  formatCollectionWindow,
+  householdCollectionsIn,
+  toCollectionEvent,
+} from '@abfall-radar/schedule-format';
 import { tryToDomainCollectionEvents } from '@/src/adapters/collection-event';
 import type { Gateway } from '@/src/background/gateway';
 import type { CollectionEventPayload, ScheduleProvenance } from '@/src/messaging/contract';
@@ -196,6 +201,117 @@ const dueCollection = (
     .sort(compareEvents);
 
   return due[0] ?? null;
+};
+
+/**
+ * Every setting a notification's *eligibility or content* depends on, reduced to one comparable string.
+ *
+ * A run reads settings once and then performs several awaited requests — the cache, possibly a schedule
+ * refresh, the household rules — so seconds pass between deciding what to say and saying it. In that gap
+ * the person can switch the bins off, move to another district, change the weekday, turn reminders off,
+ * change the lead time or the configured time, or hide a waste type, and the run in flight would still
+ * deliver a notification assembled from settings that no longer exist.
+ *
+ * So the run's inputs are fingerprinted at the start and compared against storage again at the final
+ * decision point. Anything that would have changed what this notification says, or whether it was due at
+ * all, makes the run **superseded**: it notifies about nothing and records nothing, leaving the next run —
+ * scheduled from the settings that actually apply — free to remind correctly.
+ *
+ * The weekday is included, not just the binding, because a confirmed Monday and a confirmed Tuesday
+ * produce different days from the same rules. `reminderTime` is included although it only moves the alarm:
+ * a saved change reschedules the alarm, and a run started by the old one should let the new one speak.
+ */
+const reminderInputsOf = (settings: AppSettings): string =>
+  JSON.stringify([
+    settings.selection === null
+      ? null
+      : [settings.selection.providerId, settings.selection.serviceAreaId],
+    settings.household === null
+      ? null
+      : [
+          settings.household.providerId,
+          settings.household.serviceAreaId,
+          settings.household.weekday,
+        ],
+    settings.remindersEnabled,
+    settings.reminderDaysBefore,
+    settings.reminderTime,
+    [...settings.visibleWasteTypes].sort(),
+  ]);
+
+/**
+ * Whether the settings this run was built from are still the settings in storage.
+ *
+ * Read immediately before notifying, from the same repository every writer goes through, so the answer is
+ * the current one rather than the one this run started with. Unsupported stored settings count as changed:
+ * a newer build has written them, and this build cannot say the run still matches what they mean.
+ */
+const stillCurrent = async (inputs: string): Promise<boolean> => {
+  const state = await readSettingsState();
+
+  return state.status === 'unsupported_version'
+    ? false
+    : reminderInputsOf(state.settings) === inputs;
+};
+
+/**
+ * The calculated household collections due on the reminder day, if any.
+ *
+ * Independent of the official schedule on purpose: these bins have no calendar to fail, so an unreachable
+ * or uncovered official schedule must not silence them, and their own source failing must not silence the
+ * official ones. What they share is the day being reminded about, which is why the zone is taken from the
+ * rules' own source rather than from a schedule that may not exist.
+ *
+ * Silent — an empty list — in every case where the popup would withhold the dates:
+ *
+ * - the bins are off, or the stored weekday belongs to another district;
+ * - the rules could not be read at all;
+ * - the operator has published something other than what was transcribed (`changed`);
+ * - the day lies outside the period the published rules cover.
+ *
+ * That last one is what stops a reminder outliving its rules: the coverage window is applied here exactly
+ * as it is on screen, so an expired transcription simply stops producing days.
+ */
+const dueHouseholdCollections = async (
+  gateway: Gateway,
+  settings: AppSettings,
+  selection: ServiceAreaSelection,
+  now: Date,
+): Promise<CollectionEvent[]> => {
+  const setup = settings.household;
+
+  if (
+    setup === null ||
+    setup.providerId !== selection.providerId ||
+    setup.serviceAreaId !== selection.serviceAreaId
+  ) {
+    return [];
+  }
+
+  const result = await gateway.getHouseholdRules(setup.providerId);
+
+  if (!result.ok || result.data.verification === 'changed') {
+    // Unreadable says nothing, and `changed` says the transcription is out of date. Neither may produce
+    // a notification: an unprompted message naming a day somebody should act on must not be a guess.
+    return [];
+  }
+
+  const rules = result.data;
+  const today = deriveLocalDate(rules.source.timeZone, now);
+
+  if (today === null) {
+    return [];
+  }
+
+  const reminderDate = addCalendarDays(today, settings.reminderDaysBefore);
+  const { collections } = householdCollectionsIn(rules, setup, {
+    from: reminderDate,
+    to: reminderDate,
+  });
+
+  return collections
+    .filter((collection) => settings.visibleWasteTypes.includes(collection.type))
+    .map((collection) => toCollectionEvent(collection, setup.serviceAreaId));
 };
 
 /** A restored cache entry, read as a reminder schedule. Its safe period is the intersection it recorded. */
@@ -426,6 +542,11 @@ export const showReminder = async ({
   }
 
   const selection = settings.selection;
+  /*
+   * What this run is about to be computed from, captured before the first await. Compared against storage
+   * again at the final decision point, so a run overtaken by a save says nothing.
+   */
+  const inputs = reminderInputsOf(settings);
   /**
    * One reading of the clock for the whole run, captured before anything is derived from it.
    *
@@ -446,19 +567,31 @@ export const showReminder = async ({
    */
   const cached = restored === null ? null : dueCollection(fromRestored(restored), settings, at);
 
-  let due = cached;
+  let official = cached;
 
-  if (due === null) {
+  if (official === null) {
     const refreshed = await refreshSchedule(gateway, selection, at);
 
-    due = refreshed === null ? null : dueCollection(refreshed, settings, at);
+    official = refreshed === null ? null : dueCollection(refreshed, settings, at);
   }
 
-  if (due === null) {
+  const calculated = await dueHouseholdCollections(gateway, settings, selection, at);
+  /**
+   * Everything due that day, in the product's one total order.
+   *
+   * Official and calculated collections land in one list rather than producing a notification each: two
+   * notifications for one morning is how an unprompted channel becomes noise, and naming only the first
+   * would leave somebody putting out one bin when two are due. So there is exactly one notification, and
+   * it names them all.
+   */
+  const due = [...(official === null ? [] : [official]), ...calculated].sort(compareEvents);
+  const primary = due[0];
+
+  if (primary === undefined) {
     return;
   }
 
-  const message = notificationMessageFor(due);
+  const message = notificationMessageFor(primary);
 
   if (message === null) {
     // Nothing this build can say correctly about this event, so nothing is said — and nothing is recorded as
@@ -466,17 +599,41 @@ export const showReminder = async ({
     return;
   }
 
-  const reminderKey = toReminderKey(due.id, due.date);
+  /*
+   * Keyed on the morning, not on a collection: one notification names everything due that day, so what
+   * must not repeat is the day. Keying it on the leading collection meant a changed set — the official
+   * schedule answering once and not the next time — produced a second notification for the same morning.
+   */
+  const reminderKey = toReminderKey(selection.serviceAreaId, primary.date);
 
   if (await wasReminderShown(reminderKey)) {
     return;
   }
 
+  if (!(await stillCurrent(inputs))) {
+    /*
+     * Superseded while this run was in flight. Nothing is notified, and — just as importantly — nothing is
+     * recorded as shown: marking the morning done here would silence the run that the new settings
+     * deserve, turning a stale request into a permanently missed reminder.
+     */
+    return;
+  }
+
+  const calculatedNames = new Set(calculated.map((event) => event.id));
+  /*
+   * Provenance, in the notification itself. A calculated collection is worked out from the operator's
+   * published rules and a weekday somebody confirmed, and an unprompted message telling them to put a bin
+   * out has to say which of the two kinds of date it is naming.
+   */
+  const provenance = due.some((event) => calculatedNames.has(event.id))
+    ? ' Berechnet aus den Regeln des Betriebs und deinem bestätigten Abfuhrtag.'
+    : '';
+
   await browser.notifications.create(reminderKey, {
     type: 'basic',
     iconUrl: browser.runtime.getURL('/icons/128.png'),
-    title: `Morgen: ${wasteLabels[due.type]}`,
-    message,
+    title: `Morgen: ${due.map((event) => wasteLabels[event.type]).join(' und ')}`,
+    message: `${message}${provenance}`,
   });
 
   await recordReminderShown(reminderKey);

@@ -129,6 +129,11 @@ const renderAtClock = (initial: Date, initialProps?: Partial<MidnightProps>) => 
   const client: MessagingClient = {
     ...settingsOperationsRefused,
     listCities: async () => ({ ok: true as const, data: [] }),
+    /* The household bins are opt-in; a test that does not enable them never asks for the rules. */
+    getHouseholdRules: async () => ({
+      ok: false as const,
+      failure: { kind: 'network' as const, operation: 'getHouseholdRules' as const },
+    }),
     savePresentation: async () => {
       throw new Error('savePresentation is not used by this test');
     },

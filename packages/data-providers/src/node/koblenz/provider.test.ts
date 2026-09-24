@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { allDayEvent, buildCalendar, timedEvent } from '../../test/ics-fixtures';
 import { createFakeFetch, createMutableClock } from '../../test/fake-fetch';
+import { allDayEvent, buildCalendar, timedEvent } from '../../test/ics-fixtures';
 import { FRESH_TTL_MS } from '../source-cache';
 import { koblenzStadtmitteManifest } from './manifest';
 import { createKoblenzScheduleProvider } from './provider';

@@ -1,11 +1,12 @@
 import { BrandMark, BrandName } from '@abfall-radar/ui';
 import { ArrowUp, MapPin } from 'lucide-react';
-import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { announcementMessage, failureMessage, supportIdentifier } from '@/src/app/copy';
 import { useFloatingControlClearance } from '@/src/app/floating-control';
 import { PageHeadingRow } from '@/src/app/page-heading';
 import { PAGE_INTRO } from '@/src/app/typography';
 import { AppearanceControl, LanguageControl } from '@/src/features/appearance/appearance-controls';
+import { HouseholdPanel } from '@/src/features/household/household-panel';
 import { ScheduleSurface } from '@/src/features/schedule/schedule-surface';
 import { SelectionSurface } from '@/src/features/selection/selection-surface';
 import type {
@@ -14,7 +15,8 @@ import type {
   FocusTarget,
   Snapshot,
 } from '@/src/hooks/app-controller';
-import { useAppController } from '@/src/hooks/use-app-controller';
+import { resolveGateway, useAppController } from '@/src/hooks/use-app-controller';
+import { useHouseholdSchedule } from '@/src/hooks/use-household-schedule';
 import { useLocale } from '@/src/i18n/context';
 import type { Messages } from '@/src/i18n/messages';
 import type { AppViewState, RecoveryFailure } from '@/src/schedule/view-state';
@@ -446,6 +448,18 @@ const Surface = ({
 }) => {
   const { messages } = useLocale();
   const copy = messages.states[view.kind];
+  /*
+   * The optional household bins, alongside the controller rather than inside it: they are an opt-in
+   * extra whose failure must leave the official schedule exactly as it is, so they have their own
+   * request and their own state. Resolved once, because the origin cannot change while mounted.
+   */
+  const gateway = useMemo(() => resolveGateway(), []);
+  const accepted = view.kind === 'live' || view.kind === 'empty' ? view.schedule : null;
+  const household = useHouseholdSchedule({
+    selection: accepted?.selection ?? null,
+    range: accepted?.range ?? null,
+    gateway,
+  });
 
   if (view.kind === 'needs_selection') {
     return (
@@ -509,7 +523,27 @@ const Surface = ({
       ) : null}
 
       {view.kind === 'live' || view.kind === 'empty' ? (
-        <ScheduleSurface schedule={view.schedule} />
+        <>
+          <ScheduleSurface
+            /*
+             * A transcription the operator has moved on from produces no dates at all. `changed` is the
+             * one verification state that means "these would be plausible and wrong", so the collections
+             * are withheld and the panel below says why.
+             */
+            household={
+              household.state.status === 'ready' && household.state.rules.verification !== 'changed'
+                ? household.state.schedule
+                : null
+            }
+            schedule={view.schedule}
+          />
+          <HouseholdPanel
+            onDisable={household.disable}
+            onEnable={household.enable}
+            onRetry={household.retry}
+            state={household.state}
+          />
+        </>
       ) : null}
 
       <Actions controller={controller} messages={messages} view={view} />

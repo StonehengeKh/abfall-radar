@@ -48,6 +48,7 @@ export {
   type WasteTypeTransport,
   WasteTypeTransportSchema,
 } from './contracts/collection-events';
+export * from './contracts/household-rules';
 export {
   type ProblemDetails,
   ProblemDetailsSchema,
@@ -67,8 +68,6 @@ export {
   type ProviderSourceKind,
   ProviderSourceKindSchema,
 } from './contracts/providers';
-export { isUsableTimeZone, TimeZoneSchema } from './contracts/time-zone';
-export { isWebUrl, WebUrlSchema } from './contracts/web-url';
 export {
   type ServiceArea,
   type ServiceAreaCollectionEvents,
@@ -81,6 +80,8 @@ export {
   type ServiceAreaValidity,
   ServiceAreaValiditySchema,
 } from './contracts/service-areas';
+export { isUsableTimeZone, TimeZoneSchema } from './contracts/time-zone';
+export { isWebUrl, WebUrlSchema } from './contracts/web-url';
 export {
   API_FAILURE_SCHEMAS,
   ApiClientConfigurationError,

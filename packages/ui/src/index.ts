@@ -1,5 +1,6 @@
 export * from './brand-mark';
 export * from './menus';
+export * from './schedule/calculated-badge';
 export * from './schedule/countdown-panel';
 export * from './schedule/event-row';
 export * from './schedule/next-collection-card';

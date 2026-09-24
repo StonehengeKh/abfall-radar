@@ -52,6 +52,11 @@ const setStored = async (value: unknown): Promise<void> => {
  */
 const workerBackedClient = (): MessagingClient => ({
   listCities: async () => ({ ok: true as const, data: [] }),
+  /* The household bins are opt-in; a test that does not enable them never asks for the rules. */
+  getHouseholdRules: async () => ({
+    ok: false as const,
+    failure: { kind: 'network' as const, operation: 'getHouseholdRules' as const },
+  }),
   savePresentation: async () => {
     throw new Error('savePresentation is not used by this test');
   },
@@ -101,6 +106,7 @@ const workerBackedClient = (): MessagingClient => ({
     try {
       const result = await persistSettings({
         expectedSelection: input.expectedSelection,
+        expectedHousehold: null,
         settings: {
           version: SETTINGS_SCHEMA_VERSION,
           selection: input.selection,
@@ -108,6 +114,7 @@ const workerBackedClient = (): MessagingClient => ({
           reminderDaysBefore: input.reminderDaysBefore,
           reminderTime: input.reminderTime,
           visibleWasteTypes: [...input.visibleWasteTypes],
+          household: input.household,
         },
         ...(input.evidence === undefined ? {} : { evidence: input.evidence }),
       });
@@ -320,7 +327,13 @@ describe('useSettings writes', () => {
     };
 
     expect(
-      (await result.current.saveSettings({ settings: draft, expectedSelection: null })).outcome,
+      (
+        await result.current.saveSettings({
+          settings: draft,
+          expectedSelection: null,
+          expectedHousehold: null,
+        })
+      ).outcome,
     ).toBe('persisted');
 
     const stored = await readSettings();

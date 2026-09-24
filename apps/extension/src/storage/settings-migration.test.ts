@@ -24,6 +24,7 @@ const CURRENT_SETTINGS = {
   visibleWasteTypes: ['paper'],
   locale: 'uk',
   appearance: 'dark',
+  household: null,
 } as const;
 
 /**
@@ -31,7 +32,7 @@ const CURRENT_SETTINGS = {
  * migration that dropped one and fell back would be visible.
  */
 const V2_SETTINGS = {
-  version: PREVIOUS_SETTINGS_SCHEMA_VERSION,
+  version: 2,
   selection: { providerId: 'koblenz-servicebetrieb', serviceAreaId: 'koblenz-neuendorf' },
   remindersEnabled: false,
   reminderDaysBefore: 3,
@@ -180,7 +181,84 @@ describe('migrateSettings', () => {
   });
 });
 
-describe('version 2 onto version 3', () => {
+/**
+ * A version-3 record exactly as that build wrote it: the version that introduced the language and the
+ * appearance, and knew nothing about the household bins.
+ */
+const V3_SETTINGS = {
+  version: PREVIOUS_SETTINGS_SCHEMA_VERSION,
+  selection: { providerId: 'koblenz-servicebetrieb', serviceAreaId: 'koblenz-neuendorf' },
+  remindersEnabled: false,
+  reminderDaysBefore: 3,
+  reminderTime: '06:45',
+  visibleWasteTypes: ['yellow_bag', 'hazardous'],
+  locale: 'ru',
+  appearance: 'light',
+} as const;
+
+describe('version 3 onto version 4', () => {
+  it('keeps every stored value, including the language and appearance version 3 introduced', () => {
+    const migration = migrateSettings(V3_SETTINGS);
+
+    expect(migration.outcome).toBe('migrated');
+    expect(migration.settings).toEqual({
+      version: SETTINGS_SCHEMA_VERSION,
+      selection: { providerId: 'koblenz-servicebetrieb', serviceAreaId: 'koblenz-neuendorf' },
+      remindersEnabled: false,
+      reminderDaysBefore: 3,
+      reminderTime: '06:45',
+      visibleWasteTypes: ['yellow_bag', 'hazardous'],
+      locale: 'ru',
+      appearance: 'light',
+      // The one member version 3 never had, and the only value that can be right without asking.
+      household: null,
+    });
+  });
+
+  it('starts the household bins switched off rather than guessing a weekday', () => {
+    // There is no default weekday that could be correct: it is a fact about one address on one route.
+    expect(migrateSettings(V3_SETTINGS).settings.household).toBeNull();
+  });
+
+  it('is persisted, and is idempotent across reopenings', () => {
+    const once = migrateSettings(V3_SETTINGS);
+
+    expect(shouldPersistMigration(once)).toBe(true);
+
+    const again = migrateSettings(once.settings);
+
+    expect(again.outcome).toBe('current');
+    expect(again.settings).toEqual(once.settings);
+    expect(shouldPersistMigration(again)).toBe(false);
+  });
+
+  it('never resets a household weekday confirmed after the upgrade', () => {
+    const confirmed = {
+      ...migrateSettings(V3_SETTINGS).settings,
+      household: {
+        providerId: 'koblenz-servicebetrieb',
+        serviceAreaId: 'koblenz-neuendorf',
+        weekday: 1,
+      },
+    };
+    const reopened = migrateSettings(confirmed);
+
+    expect(reopened.outcome).toBe('current');
+    expect(reopened.settings.household).toEqual({
+      providerId: 'koblenz-servicebetrieb',
+      serviceAreaId: 'koblenz-neuendorf',
+      weekday: 1,
+    });
+  });
+
+  it('does not treat a malformed version-3 record as version 3', () => {
+    const broken = migrateSettings({ ...V3_SETTINGS, appearance: 'neon' });
+
+    expect(broken.outcome).toBe('defaulted');
+  });
+});
+
+describe('version 2 onto version 4', () => {
   it('keeps every stored value and the selection in its existing shape', () => {
     const migration = migrateSettings(V2_SETTINGS);
 
@@ -194,8 +272,9 @@ describe('version 2 onto version 3', () => {
       visibleWasteTypes: ['yellow_bag', 'hazardous'],
       locale: 'de',
       appearance: 'system',
+      household: null,
     });
-    // Exactly the two members version 2 never had: no city, no schedule, nothing else added.
+    // Exactly the members version 2 never had: no city, no schedule, nothing else added.
     expect(Object.keys(migration.settings.selection ?? {}).sort()).toEqual([
       'providerId',
       'serviceAreaId',
