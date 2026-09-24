@@ -170,6 +170,22 @@
   --shadow-ar-sm: var(--ar-shadow-sm);
   --shadow-ar-md: var(--ar-shadow-md);
   --shadow-ar-brand: var(--ar-shadow-brand);
+  /*
+   * The radius namespace, registered here with the colours and shadows rather than per application.
+   *
+   * Tailwind emits a utility only for a namespace it knows, so `rounded-ar-md` on a shared component
+   * produced no rule at all in any application that had not registered `--radius-ar-*` itself. The
+   * website registered it locally and looked correct; the extension never did, so its built stylesheet
+   * contained **no** `rounded-ar-*` utility and every shared card, button, field, menu and badge
+   * rendered with square corners while the same component was rounded on the website.
+   *
+   * The values have always lived in this file. Publishing the mapping beside them is what makes one
+   * scale reach both applications, instead of each one re-deriving it — or silently not.
+   */
+  --radius-ar-sm: var(--ar-radius-sm);
+  --radius-ar-md: var(--ar-radius-md);
+  --radius-ar-lg: var(--ar-radius-lg);
+  --radius-ar-xl: var(--ar-radius-xl);
 }
 
 /*

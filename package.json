@@ -10,7 +10,7 @@
   },
   "scripts": {
     "build": "turbo run build",
-    "check": "pnpm format:check && pnpm lint && pnpm typecheck && pnpm test && pnpm build && pnpm verify:web-build-output-task",
+    "check": "pnpm format:check && pnpm lint && pnpm typecheck && pnpm test && pnpm build && pnpm verify:web-build-output-task && pnpm sync:brand-icons:check",
     "dev": "turbo run dev --parallel",
     "dev:api": "turbo run dev --filter=@abfall-radar/api",
     "dev:extension": "turbo run dev --filter=@abfall-radar/extension",
@@ -20,6 +20,8 @@
     "format:check": "biome format .",
     "lint": "biome lint .",
     "lint:fix": "biome lint --write .",
+    "sync:brand-icons": "node scripts/sync-brand-icons.mjs",
+    "sync:brand-icons:check": "node scripts/sync-brand-icons.mjs --check",
     "test": "turbo run test",
     "test:watch": "turbo run test:watch --parallel",
     "typecheck": "turbo run typecheck",

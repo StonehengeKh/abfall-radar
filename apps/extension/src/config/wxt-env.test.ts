@@ -226,9 +226,17 @@ describe('the release gate against an env-file origin', () => {
  * here, in the same file, after the builds above have run.
  */
 describe('the env fixtures these tests create', () => {
-  it('leaves no env file in the package', () => {
-    // `afterEach` removes each fixture unconditionally; this is the standing check that it really did.
-    expect(readdirSync('.').filter((entry) => entry.startsWith('.env'))).toEqual([]);
+  it('leaves no env fixture of its own in the package', () => {
+    /*
+     * Scoped to the fixture this file writes, not to every `.env*` name.
+     *
+     * The blanket assertion also failed on `.env.local`, which is git-ignored, documented, and where the
+     * install workflow's destination is configured — so following the extension README made `pnpm check`
+     * fail. The hazard this guards against is a *fixture* surviving a failed expectation and silently
+     * changing every later build on the machine; that is `ENV_FILE`, and nothing else here creates one.
+     * The repository-wide tracked-file guard below is untouched and still catches a committed env file.
+     */
+    expect(readdirSync('.').filter((entry) => entry === ENV_FILE)).toEqual([]);
   });
 
   it('keeps no env file under version control anywhere in the repository', () => {

@@ -15,21 +15,6 @@
 @source not "../../../../packages/ui/src/**/*.spec.ts";
 @source not "../../../../packages/ui/src/**/*.spec.tsx";
 
-/*
- * The radius utility namespace for the shared scale.
- *
- * `packages/ui` publishes the `--ar-radius-*` custom properties and maps colours and shadows into
- * Tailwind's theme, but no radius namespace was registered, so `rounded-ar-md` matched no utility and
- * the intended corner never reached the emitted CSS. The values stay in the shared package; only the
- * mapping this application needs is added here.
- */
-@theme inline {
-  --radius-ar-sm: var(--ar-radius-sm);
-  --radius-ar-md: var(--ar-radius-md);
-  --radius-ar-lg: var(--ar-radius-lg);
-  --radius-ar-xl: var(--ar-radius-xl);
-}
-
 :root {
   color: var(--ar-color-text);
   background: var(--ar-color-canvas);
